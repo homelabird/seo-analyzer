@@ -127,14 +127,14 @@ Except for `user_agent`, these keys apply to crawls only: `seomator crawl` and
 | `exclude` | list of strings | `[]` | Strings | Path patterns a crawl never follows. |
 | `drop_query_prefixes` | list of strings | `["utm_", "gclid", "fbclid", "mc_", "_ga"]` | Strings | Query parameters whose names start with one of these are removed from each URL a crawl queues. Ignored while `allow_query_params` is not empty. See [Query parameters](#query-parameters). |
 | `allow_query_params` | list of strings | `[]` | Strings | When not empty, a crawl keeps only these query parameters and removes all others. |
-| `per_host_concurrency` | integer | `2` | 1 to 5 | Not implemented. Concurrency is global. |
+| `per_host_concurrency` | integer | `2` | 1 to 5 | Maximum simultaneous HTTP requests to one host. |
 | `breadth_first` | boolean | `true` | `true`, `false` | Not implemented. The queue is always breadth-first. |
 | `follow_redirects` | boolean | `true` | `true`, `false` | Not implemented. Redirects are always followed. |
 | `max_prefix_budget` | number | `0.25` | 0 to 1 | Not implemented. No prefix budget is applied. |
 
-The four "Not implemented" keys are parsed and validated, and no code reads
-them. Their defaults describe what the crawler does anyway. `config validate`
-warns about each one you change, with a message that begins
+The three "Not implemented" keys are parsed and validated, and no code reads
+them. Their defaults describe what the crawler does anyway. `audit` and `config validate`
+warn about each one you change, with a message that begins
 `<key> is not implemented and has no effect`.
 
 ### [rules]
@@ -185,9 +185,7 @@ opened. `config validate` warns about each key you change from its default.
 | `timeout_ms` | number | `10000` | 1000 to 60000 |
 | `concurrency` | number | `5` | 1 to 20 |
 
-The `links` rules inspect the links in each page's HTML and do not request
-them. `enabled = false` does not stop the `crawl-pdf-size` rule, which sends a
-`HEAD` request to up to eight linked PDFs per page, on any host.
+External target validation still requests up to 20 distinct external URLs per page, using shared run-scoped probes. `enabled = false` does not disable it; the audit warns that this key is unsupported. It also does not stop `crawl-pdf-size`, which can probe linked PDFs on any allowed host. Global/per-host crawler limits and the private-network policy still apply.
 
 ### [rule_options]
 
@@ -788,3 +786,5 @@ $ jq '{url, overallScore}' reports/audit.json
 - [Storage Architecture](./STORAGE-ARCHITECTURE.md): the databases under `$SEOMATOR_HOME`
 - [The local dashboard](./WEB-DASHBOARD.md): `seomator serve`
 - [Technical Architecture](./technical-architecture.md): how the engine fits together
+
+`crawler.allow_private` defaults to `false`. Enable it only for an intended local/intranet audit; `--allow-private` is the per-run CLI override. Explicit CLI numeric options override TOML; omitted options use the configuration.

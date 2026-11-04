@@ -234,13 +234,13 @@ Core Web Vitals measurements and static performance optimization hints.
 | `perf-text-compression` | Text Compression | 8 | warn | Checks the page response is compressed (gzip, br, deflate or zstd) |
 | `perf-brotli` | Brotli Compression | 5 | warn | Checks for Brotli over gzip for better ratios |
 | `perf-cache-policy` | Cache Policy | 7 | warn | Checks the page response for caching headers (Cache-Control, ETag, Last-Modified, Expires); none at all warns |
-| `perf-minify-css` | Minify Inline CSS | 5 | warn | Checks inline CSS is minified; with render data, also flags large external stylesheets lacking a `.min.` URL marker (heuristic) |
-| `perf-minify-js` | Minify Inline JS | 5 | warn | Checks inline JavaScript is minified; with render data, also flags large external scripts lacking a `.min.` URL marker (heuristic) |
+| `perf-minify-css` | Minify Inline CSS | 5 | warn | Checks inline CSS whitespace; external bodies remain unmeasured |
+| `perf-minify-js` | Minify Inline JS | 5 | warn | Checks inline JavaScript whitespace/comments; external bodies remain unmeasured |
 | `perf-asset-cache-policy` | Static Asset Cache Policy | 6 | warn | Per-asset check: static CSS/JS/image/font responses carry a cache-control max-age of at least 1 hour (requires render; not measured with --no-cwv) |
 | `perf-asset-compression` | Text Asset Compression | 6 | warn | Per-asset check: text-based assets over 2KB are served with gzip/Brotli (requires render; not measured with --no-cwv) |
 | `perf-image-encoding` | Efficient Image Encoding | 6 | warn/fail | Per-asset check: images transferred over 100KB (warn) or served in legacy BMP/TIFF formats (fail) (requires render; not measured with --no-cwv) |
 | `perf-response-time` | Response Time | 7 | warn/fail | Measures server response time for the page |
-| `perf-http2` | HTTP/2+ Support | 5 | warn | Warns when the response has no `alt-svc` header; the negotiated protocol is not checked |
+| `perf-http2` | HTTP/2+ Support | 5 | warn | Checks the browser navigation protocol; unmeasured when unavailable |
 | `perf-page-weight` | Page Weight | 8 | warn/fail | Size of the HTML document: over 100KB warns, over 300KB fails |
 | `perf-js-file-size` | Inline JS Size | 5 | warn/fail | Total inline JavaScript in `<script>` tags without `src`: over 50KB warns, over 150KB fails |
 | `perf-video-for-animations` | Video for Animations | 4 | warn | Warns on any GIF image and suggests `<video>`; it cannot tell whether the GIF is animated |
@@ -295,7 +295,7 @@ Core Web Vitals measurements and static performance optimization hints.
 - **Fix:** Send a `Cache-Control` header with the HTML, or at least `ETag` or `Last-Modified` so browsers can revalidate
 
 #### perf-minify-css / perf-minify-js
-- **What it checks:** Inline CSS and JavaScript directly, once there is more than 500 bytes of it: more than 15% whitespace, or a block comment in JavaScript, warns. With render data, external stylesheets and scripts over 2KB (by content-length) whose URL has no `.min.` marker are also flagged. That part is a heuristic, because asset bodies are not captured, so it never goes beyond a warn. When some external files could not be sized and the inline check passes, the rule reports not measured.
+- **What it checks:** Inline CSS/JS over 500 bytes: more than 15% whitespace, or a JavaScript block comment, warns. External bodies are not captured, so filenames and encoded sizes do not establish minification and remain unmeasured.
 - **Fix:** Use build tools (esbuild, terser, cssnano) to minify CSS and JavaScript
 
 #### perf-asset-cache-policy
@@ -314,7 +314,7 @@ Core Web Vitals measurements and static performance optimization hints.
 - **Fix:** Optimize server processing, enable caching, use CDN
 
 #### perf-http2
-- **What it checks:** Only the `alt-svc` response header. With it the rule passes; without it the rule warns, even when the server already speaks HTTP/2. The negotiated protocol is not read.
+- **What it checks:** The browser navigation `nextHopProtocol`. HTTP/2 and HTTP/3 pass; an observed older protocol warns. Missing observations are unmeasured. Alt-Svc alone is not proof.
 - **Fix:** Enable HTTP/2 or HTTP/3 on your server or CDN, and advertise HTTP/3 with an `alt-svc` header
 
 #### perf-page-weight
@@ -505,8 +505,8 @@ Validates HTTPS, security headers, mixed content, SSL, and leaked secrets.
 | `security-protocol-relative` | Protocol-Relative URLs | 6 | warn | Detects `//example.com` URLs |
 | `security-cookie-flags` | Cookie Security Flags | 10 | warn/fail | Checks Set-Cookie for Secure, HttpOnly and SameSite |
 | `security-cookie-lifetime` | Cookie Lifetime | 4 | warn | Flags cookies beyond the 400-day browser cap |
-| `security-ssl-expiry` | SSL Certificate Health | 8 | warn/fail | Does not read the certificate: an HTTP page fails; HTTPS without HSTS, or an HSTS max-age under one year, warns |
-| `security-ssl-protocol` | TLS Protocol Configuration | 6 | warn/fail | Does not test the TLS version: an HTTP page or a missing HSTS header fails; HSTS without includeSubDomains and preload warns |
+| `security-ssl-expiry` | SSL Certificate Expiry | 8 | warn/fail | Observed certificate expiry; unmeasured without TLS evidence |
+| `security-ssl-protocol` | TLS Protocol Configuration | 6 | warn/fail | Checks observed TLS version; unmeasured without TLS evidence |
 | `security-sri` | Subresource Integrity | 3 | warn | Cross-origin scripts and stylesheets have an integrity hash |
 | `security-obfuscated-script` | Obfuscated Inline Script | 4 | warn | No long high-entropy inline script calls eval, Function, or atob |
 | `security-brand-impersonation` | Brand Sign-In Destination | 6 | warn | Brand sign-in links point at the brand or this host |
@@ -567,12 +567,12 @@ Validates HTTPS, security headers, mixed content, SSL, and leaked secrets.
 - **Fix:** Replace `//example.com/file.js` with `https://example.com/file.js`.
 
 #### security-ssl-expiry
-- **What it checks:** HSTS as a proxy for certificate upkeep. The certificate and its expiry date are not read. An HTTP page fails. On HTTPS, a missing `Strict-Transport-Security` header, a missing or invalid `max-age`, or a `max-age` under one year (31536000 seconds) warns.
-- **Fix:** Serve the site over HTTPS and send `Strict-Transport-Security` with a `max-age` of 31536000 or more.
+- **What it checks:** The authenticated TLS peer certificate expiry. Expired certificates fail; fewer than 30 days remaining warns. Missing TLS evidence is unmeasured.
+- **Fix:** Renew certificates before expiry and serve a trusted HTTPS certificate.
 
 #### security-ssl-protocol
-- **What it checks:** HSTS directives. The negotiated TLS version is not tested. An HTTP page fails, an HTTPS page without `Strict-Transport-Security` fails, and HSTS without both `includeSubDomains` and `preload` warns.
-- **Fix:** Send `Strict-Transport-Security: max-age=31536000; includeSubDomains; preload`.
+- **What it checks:** The negotiated TLS version. TLS 1.2/1.3 pass; obsolete versions fail. HSTS preload is not a TLS-version measurement. Missing evidence is unmeasured.
+- **Fix:** Enable TLS 1.2 or 1.3 on the server.
 
 ---
 
@@ -724,6 +724,7 @@ The cross-page rules (`crawl-sitemap-orphan-urls`, `crawl-pagination-isolated`, 
 - **Fix:** Remove duplicate entries from sitemap. Each URL should appear once.
 
 #### crawl-sitemap-orphan-urls
+- **What it checks:** Inbound links in the completed graph and fetched sitemap inventory. Partial/filtered crawls and truncated inventories report unmeasured candidates, independently of page evaluation order.
 - **Fix:** Add internal links to sitemap-only URLs, or remove them from the sitemap.
 
 #### crawl-blocked-resources
@@ -820,7 +821,7 @@ Checks for valid JSON-LD, Schema.org markup, and rich snippet eligibility.
 | `schema-product` | Product Schema | 12 | warn/fail | Validates Product for e-commerce |
 | `schema-review` | Review Schema | 10 | warn/fail | Validates Review/AggregateRating |
 | `schema-video` | Video Schema | 10 | warn/fail | Validates VideoObject |
-| `schema-website-search` | WebSite Search Schema | 8 | warn | Checks sitelinks searchbox eligibility |
+| `schema-website-search` | WebSite Identity Schema | 8 | warn | Checks WebSite name and URL metadata; SearchAction is not required |
 | `schema-entity-id` | Schema Entity @id | 8 | warn | Organization, WebSite, Person, and Business entities use an absolute @id |
 | `schema-rating-scope` | AggregateRating Scope | 8 | warn | AggregateRating is not on a legal or account URL, and ratingValue is visible |
 | `schema-entity-conflict` | Schema Entity Conflicts | 6 | warn | One absolute @id does not carry two logos or two phone numbers (requires --crawl) |
@@ -862,7 +863,7 @@ Checks for valid JSON-LD, Schema.org markup, and rich snippet eligibility.
 - **Fix:** Include name, thumbnailUrl, uploadDate. Use ISO 8601 for duration (PT1M30S).
 
 #### schema-website-search
-- **Fix:** Add WebSite schema with SearchAction and target containing `{search_term_string}`.
+- **Fix:** Provide WebSite name and URL metadata. Google retired the sitelinks searchbox in November 2024; SearchAction is not required.
 
 #### schema-entity-split
 - **Warn:** The same organization or person name is published under two or more absolute `@id`s. Needs a crawl of at least two pages. Relative `@id`s are ignored.
@@ -1049,7 +1050,7 @@ Checks for WCAG compliance, screen reader support, and keyboard navigation.
 | Rule ID | Name | Weight | Severity | Description |
 |---------|------|-------:|----------|-------------|
 | `a11y-aria-labels` | ARIA Labels | 10 | warn/fail | Interactive elements have accessible names |
-| `a11y-color-contrast` | Color Contrast | 8 | warn | Heuristic check of inline-style colours for likely low contrast; not measured when no element has an inline colour |
+| `a11y-color-contrast` | Color Contrast | 8 | warn | Checks explicit opaque inline colour pairs by contrast ratio; unknown styles remain unmeasured |
 | `a11y-focus-visible` | Focus Visible | 8 | warn/fail | Checks for focus indicator styles |
 | `a11y-form-labels` | Form Labels | 10 | warn/fail | Form inputs have associated labels |
 | `a11y-heading-order` | Heading Order | 8 | warn/fail | Heading levels don't skip |
@@ -1089,7 +1090,7 @@ Checks for WCAG compliance, screen reader support, and keyboard navigation.
 - **Fix:** Add `aria-label`, visible text content, or `title` to interactive elements (buttons, links, inputs).
 
 #### a11y-color-contrast
-- **What it checks:** Inline `style` colours only, by heuristic: text and background colour names from a known low-contrast list (such as yellow on white), light grey text, and text over a `background-image` with no `background-color`. It computes no contrast ratio. Not measured when no element has an inline colour or background image.
+- **What it checks:** Contrast ratios for explicit opaque inline text/background pairs (supported hex, RGB and named colours). Computed, inherited and composited styles remain unmeasured. Normal text uses 4.5:1; explicitly large text uses 3:1.
 - **Fix:** Ensure minimum 4.5:1 contrast ratio for normal text, 3:1 for large text.
 
 #### a11y-focus-visible
@@ -1614,7 +1615,7 @@ Checks for Generative Engine Optimization: semantic HTML, content structure, and
 | `geo-semantic-html` | Semantic HTML Structure | 25 | warn/fail | Checks for semantic HTML5 elements |
 | `geo-content-structure` | Content Structure for AI | 25 | warn/fail | Checks content is well-structured for extraction |
 | `geo-ai-bot-access` | AI Bot Access | 20 | warn/fail | Warns when robots.txt blocks some AI answer-engine crawlers with `Disallow: /`, fails when it blocks all; training-only crawlers are not penalised |
-| `geo-llms-txt` | llms.txt Reference | 15 | warn | Warns when the page does not reference an llms.txt file; the file itself is not fetched |
+| `geo-llms-txt` | llms.txt Reference | 0 | info | Warns when the page does not reference an llms.txt file; the file itself is not fetched |
 | `geo-schema-drift` | Schema Content Drift | 15 | warn/fail | Checks schema markup matches actual content |
 | `geo-content-signals` | Content-Signal Policy | 6 | warn | robots.txt Content-Signal syntax and contradictions with training-crawler blocks |
 | `geo-noai-signals` | AI Opt-Out Directives | 1 | pass only | Reports noai and noimageai without scoring them down |
@@ -1636,6 +1637,7 @@ Checks for Generative Engine Optimization: semantic HTML, content structure, and
 - **Fix:** Allow the answer-engine crawlers (OAI-SearchBot, PerplexityBot, ClaudeBot, Google-Extended) in robots.txt. Training crawlers such as GPTBot can stay blocked if that is your policy.
 
 #### geo-llms-txt
+- **Scoring:** Informational, weight 0. This emerging convention does not lower the SEO score.
 - **What it checks:** The page HTML for a reference to llms.txt: `<link rel="llms">`, `<meta name="llms">`, or an `<a>` or `<link>` whose href ends in `/llms.txt` or `/.well-known/llms.txt`. The file itself is not fetched, so a site with `/llms.txt` and no reference on the page still warns.
 - **Fix:** Add a `/llms.txt` file describing your site for AI systems (see llmstxt.org), and reference it, for example with `<link rel="llms" href="/llms.txt">` in `<head>`.
 

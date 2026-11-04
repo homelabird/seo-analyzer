@@ -7,6 +7,51 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- Redact URL credentials, sensitive query values, authentication headers and
+  nested diagnostic strings before saving or exporting audits. Existing history
+  is redacted on presentation; stored HTML snapshots and old database files are
+  not rewritten.
+- Resolve relative links, images, canonicals and hreflang against the final
+  document URL and first HTML base. Preserve significant trailing slashes and
+  record final URLs and real crawl depth for replay.
+- Honour TOML crawler limits unless the CLI explicitly overrides them. Reject
+  malformed numeric arguments and unknown API/desktop categories.
+- Share in-flight URL probes and completed crawl responses across the run;
+  deduplicate external targets and bound global/per-host request concurrency.
+  Failed probes are unmeasured rather than successful redirect checks.
+- Compute sitemap-orphan candidates from the completed graph, independently of
+  page order. Partial, filtered or incomplete inventories do not certify orphans.
+- Correct `max-snippet:-1`, explicit inline contrast ratios, observed TLS expiry
+  and version, and browser navigation protocol checks. External asset filenames
+  and encoded sizes no longer prove minification. Remove the retired sitelinks
+  searchbox recommendation; llms.txt references are unweighted information.
+- **Scoring model 5:** entirely unmeasured categories no longer lower the overall
+  score. Rule corrections also change category averages; category weights remain
+  unchanged. Old scores are preserved and cross-model comparisons are flagged.
+  Entirely unmeasured audits/categories display N/A while numeric fields remain
+  compatible. Persist cap/waiver explanations, coverage and page previews using
+  an additive SQLite column.
+
+### Security
+
+- Validate every HTTP redirect and the DNS answer used by the socket connector.
+  Private, loopback, link-local, multicast and metadata addresses are blocked by
+  default. Local/intranet audits require `--allow-private`,
+  `crawler.allow_private = true`, or the explicit web/desktop run option.
+- Route browser HTTP, CONNECT and WebSocket traffic through the same checked DNS
+  policy. Enable the Chromium sandbox, disable direct WebRTC UDP and QUIC, and
+  report policy-interrupted renders as unavailable. Bound HTML/XML response sizes
+  and gzip expansion.
+
+### Development
+
+- Declare the existing transitive Undici transport as a direct CLI dependency,
+  align minimum Node with its requirements (20.18.1), and declare Vite 7 for the
+  existing Electron Vite 5 toolchain. Synchronize the lock file and run CLI/web/
+  Electron type/build checks in CI on Node 22 and 24.
+
 ## [7.0.0] - 2026-10-15
 
 ### Added

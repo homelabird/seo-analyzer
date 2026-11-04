@@ -271,3 +271,22 @@ The stored row carries a run profile: crawl mode, page limit, concurrency, Core 
 - [AI Agent Integration](./ai-agent-integration.md): driving audits from an agent and reading machine output.
 - [Quickstart](./quickstart.md): install SEOmator and run a first audit.
 - [Documentation index](./README.md): all SEOmator docs.
+
+## Network and output boundaries
+
+Each audit owns a `NetworkSession`: a bounded scheduler, in-flight/completed
+probe cache, observed TLS metadata and checked Undici connector. DNS addresses
+are validated inside the socket lookup and supplied directly to the connection;
+redirects use manual validation on every hop. Raw audit context remains intact.
+Sanitization copies data at report, callback, API and persistence boundaries.
+
+Browser renders use a temporary forward proxy with the same checked DNS lookup,
+including HTTPS CONNECT and WebSocket upgrades. Chromium bypasses no loopback
+targets, runs sandboxed and disables non-proxied WebRTC UDP/QUIC. A policy-blocked
+render cannot certify CWV, rendered content or parity: it is recorded as unavailable.
+Local/private network access is explicit and recorded in the run profile.
+
+Scoring model 5 excludes categories with no weighted readings. The legacy numeric
+score remains present, accompanied by `measured: false` and N/A presentation where
+no reading exists. `audits.result_json` adds cap/waiver explanations and coverage
+without changing historic scores or requiring a destructive migration.

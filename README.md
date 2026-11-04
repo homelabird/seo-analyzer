@@ -44,6 +44,12 @@
 - **CI/CD Ready** - Exit codes, JSON output, GitHub Actions & GitLab CI examples
 - **TOML Configuration** - Project-level settings with presets and inheritance
 
+Public audits block requests to private networks, including redirect and browser
+subresource destinations. For an intended local or intranet audit, use
+`seomator audit http://localhost:3000 --allow-private --no-cwv`, set
+`crawler.allow_private = true` in the project config, or enable the local/private
+network option in the run form. Source development requires Node 22.12+ or 24.
+
 ## Installation
 
 ### From npm (recommended)
@@ -969,7 +975,7 @@ Yes. The `--format llm` flag outputs token-efficient, injection-hardened XML des
 
 ## Requirements
 
-- **Node.js 20.3+** (required by better-sqlite3 and `AbortSignal.any()`; uses native fetch API)
+- **Node.js 20.18.1+** (required by the HTTP transport; uses native fetch API)
 - **Playwright** (for Core Web Vitals and JS rendering analysis)
 
 After installing, run `npx playwright install chromium` to install the browser for CWV measurement.
