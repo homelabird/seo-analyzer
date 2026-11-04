@@ -1,3 +1,4 @@
+import { sanitizeForOutput } from '../sanitize.js';
 import type {
   PageSnapshot,
   AuditResult,
@@ -2141,6 +2142,7 @@ function renderPageSnapshot(page: PageSnapshot | undefined, url: string): string
 }
 
 export function renderHtmlReport(result: AuditResult): string {
+  result = sanitizeForOutput(result);
   const scoreColor = getScoreColor(result.overallScore);
   const scoreLabel = scoreToVerdict(result.overallScore).label;
   const timestamp = new Date(result.timestamp).toLocaleString();

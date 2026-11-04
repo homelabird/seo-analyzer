@@ -1,3 +1,4 @@
+import { sanitizeForOutput } from '../sanitize.js';
 /**
  * One audit run, watchable from anywhere.
  *
@@ -423,6 +424,7 @@ export class AuditSession {
   }
 
   private setState(next: RunState): void {
+    next = sanitizeForOutput(next);
     this.state = next;
     for (const listener of this.listeners) {
       listener(next);

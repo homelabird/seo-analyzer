@@ -1,3 +1,4 @@
+import { sanitizeForOutput } from '../sanitize.js';
 /**
  * LLM-optimized report format
  *
@@ -155,6 +156,7 @@ export const MAX_ISSUES = 150;
  * @returns XML string
  */
 export function renderLlmReport(result: AuditResult, prettyPrint = false): string {
+  result = sanitizeForOutput(result);
   const nl = prettyPrint ? '\n' : '';
   const t1 = prettyPrint ? '  ' : '';
   const t2 = prettyPrint ? '    ' : '';
@@ -342,6 +344,7 @@ export function renderLlmError(failure: {
   message: string;
   hint?: string;
 }): string {
+  failure = sanitizeForOutput(failure);
   const date = new Date().toISOString();
   return (
     `<seo-audit schema="${AUDIT_SCHEMA_VERSION}" ok="false" url="${escapeXml(failure.url)}" date="${date}">\n` +

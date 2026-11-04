@@ -1,3 +1,4 @@
+import { sanitizeForOutput } from '../sanitize.js';
 import chalk from 'chalk';
 
 /** A failure a command reports before it has any document to emit. */
@@ -29,7 +30,7 @@ export interface CommandFailure {
  * handle in one, and three of its error paths exited straight past it.
  */
 export function emitCommandError(failure: CommandFailure): void {
-  const { json, code, message, hint, exitCode = 1 } = failure;
+  const { json, code, message, hint, exitCode = 1 } = sanitizeForOutput(failure);
 
   if (json) {
     console.log(

@@ -1,3 +1,4 @@
+import { sanitizeForOutput } from '../sanitize.js';
 /**
  * Read-side queries over the audits database, shaped for display.
  *
@@ -163,11 +164,11 @@ export function getAuditDetail(db: AuditsDatabase, auditId: string): AuditDetail
     coverage: { pages, detail: 'aggregated' },
   };
 
-  return {
+  return sanitizeForOutput({
     audit: toMeta(audit),
     result,
     ruleMetadata: buildRuleMetadata(summaries),
-  };
+  });
 }
 
 /**

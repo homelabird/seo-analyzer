@@ -1,3 +1,4 @@
+import { sanitizeText } from '../sanitize.js';
 import chalk from 'chalk';
 import { Crawler } from '../crawler/index.js';
 import { loadConfig } from '../config/index.js';
@@ -29,7 +30,7 @@ export async function runCrawl(url: string, options: CrawlOptions): Promise<void
   const crawl = createCrawl(url, config.project.name || 'default', config);
 
   console.log(chalk.blue('Starting crawl...'));
-  console.log(`  URL: ${url}`);
+  console.log(`  URL: ${sanitizeText(url)}`);
   console.log(`  Max pages: ${maxPages}`);
   console.log();
 
@@ -47,9 +48,8 @@ export async function runCrawl(url: string, options: CrawlOptions): Promise<void
     perHostDelayMs: config.crawler.per_host_delay_ms,
     onProgress: (progress) => {
       if (options.verbose) {
-        const truncatedUrl = progress.currentUrl.length > 50
-          ? progress.currentUrl.slice(0, 50) + '...'
-          : progress.currentUrl;
+        const displayUrl = sanitizeText(progress.currentUrl);
+        const truncatedUrl = displayUrl.length > 50 ? displayUrl.slice(0, 50) + '...' : displayUrl;
         process.stderr.write(`\r  Crawled: ${progress.crawled}/${progress.total} | Current: ${truncatedUrl}`);
       }
     },
@@ -103,7 +103,7 @@ export async function runCrawl(url: string, options: CrawlOptions): Promise<void
     console.log(`  seomator analyze ${crawlId}`);
     console.log();
   } catch (error) {
-    console.error(chalk.red('Crawl failed:'), error instanceof Error ? error.message : 'Unknown error');
+    console.error(chalk.red('Crawl failed:'), sanitizeText(error instanceof Error ? error.message : 'Unknown error'));
     process.exit(2);
   }
 }

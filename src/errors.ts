@@ -1,3 +1,4 @@
+import { sanitizeText } from './sanitize.js';
 /**
  * Typed failures for an audit run.
  *
@@ -39,10 +40,11 @@ export class AuditError extends Error {
   readonly hint: string | undefined;
 
   constructor(code: AuditErrorCode, message: string, options: { cause?: unknown; hint?: string } = {}) {
-    super(message, options.cause !== undefined ? { cause: options.cause } : undefined);
+    super(sanitizeText(message), options.cause !== undefined ? { cause: options.cause } : undefined);
     this.name = 'AuditError';
     this.code = code;
-    this.hint = options.hint ?? HINTS[code];
+    const hint = options.hint ?? HINTS[code];
+    this.hint = hint ? sanitizeText(hint) : undefined;
   }
 }
 

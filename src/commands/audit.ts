@@ -1,3 +1,4 @@
+import { sanitizeForOutput, sanitizeText } from '../sanitize.js';
 import chalk from 'chalk';
 import * as fs from 'fs';
 import * as path from 'path';
@@ -84,7 +85,8 @@ function reportAuditError(
   isMachineMode: boolean,
   isJsonMode: boolean
 ): void {
-  const audited = classifyError(error);
+  const audited = sanitizeForOutput(classifyError(error));
+  url = sanitizeText(url);
 
   if (!isMachineMode) {
     console.error();

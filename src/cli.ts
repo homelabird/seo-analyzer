@@ -1,3 +1,4 @@
+import { sanitizeText } from './sanitize.js';
 import chalk from 'chalk';
 import { Command, InvalidArgumentError, Option } from 'commander';
 import { getCategoryIds } from './categories/index.js';
@@ -115,6 +116,7 @@ function parseIntValue(value: string, name: string, min: number, max: number): n
 const program = new Command();
 
 program
+  .configureOutput({ writeErr: (text) => { process.stderr.write(sanitizeText(text)); } })
   .name('seomator')
   .description(
     `SEOmator - Comprehensive SEO audit CLI with ${getRuleCount()} rules across 20 categories`

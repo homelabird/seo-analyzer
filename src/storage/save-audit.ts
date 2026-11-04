@@ -12,6 +12,7 @@ import { getCategoryById } from '../categories/index.js';
 import { getRuleById } from '../rules/registry.js';
 import { generateId } from './utils/hash.js';
 import { getVersion } from '../version.js';
+import { sanitizeForOutput } from '../sanitize.js';
 
 /**
  * Writes a completed audit into the audits database.
@@ -123,6 +124,7 @@ export function withBusyRetry<T>(fn: () => T, options: BusyRetryOptions = {}): T
  * @returns Identifiers for the stored audit
  */
 export function saveAuditToDatabase(result: AuditResult, options: SaveAuditOptions = {}): SavedAudit {
+  result = sanitizeForOutput(result);
   const db = options.db ?? getAuditsDatabase();
   const auditId = generateId();
   const startUrl = stripUserinfo(result.url);
@@ -175,7 +177,7 @@ export function saveAuditToDatabase(result: AuditResult, options: SaveAuditOptio
   // Storing only the caller's hand-built copy lost the scoring version on
   // every surface but `analyze`, so compare read a model change as a site
   // regression.
-  const run = options.run ? { ...result.run, ...options.run } : result.run;
+  const run = options.run ? { ...result.run, ...sanitizeForOutput(options.run) } : result.run;
 
   const write = db.getDb().transaction((): SavedAudit => {
     const audit = db.createAudit({
@@ -186,7 +188,7 @@ export function saveAuditToDatabase(result: AuditResult, options: SaveAuditOptio
       engineVersion: getVersion(),
       ...(run && { run }),
       ...(options.projectName && { projectName: options.projectName }),
-      ...(options.config && { config: options.config }),
+      ...(options.config && { config: sanitizeForOutput(options.config) }),
     });
 
     db.insertCategories(audit.id, categoryInputs);

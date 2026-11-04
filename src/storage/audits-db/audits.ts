@@ -1,3 +1,4 @@
+import { sanitizeForOutput } from '../../sanitize.js';
 import type Database from 'better-sqlite3';
 import type {
   DbAudit,
@@ -14,7 +15,7 @@ import { parseSqliteUtc, toSqliteUtc } from '../sqlite-time.js';
  * Hydrate an audit record
  */
 function hydrateAudit(row: DbAudit): HydratedAudit {
-  return {
+  return sanitizeForOutput({
     id: row.id,
     auditId: row.audit_id,
     domain: row.domain,
@@ -34,14 +35,14 @@ function hydrateAudit(row: DbAudit): HydratedAudit {
     source: (row.source as AuditSource | null) ?? null,
     engineVersion: row.engine_version ?? null,
     run: row.run_json ? (JSON.parse(row.run_json) as AuditRunOptions) : null,
-  };
+  });
 }
 
 /**
  * Create audit summary from row
  */
 export function toAuditSummary(row: DbAudit): AuditSummary {
-  return {
+  return sanitizeForOutput({
     id: row.id,
     auditId: row.audit_id,
     domain: row.domain,
@@ -57,7 +58,7 @@ export function toAuditSummary(row: DbAudit): AuditSummary {
     status: row.status,
     source: (row.source as AuditSource | null) ?? null,
     engineVersion: row.engine_version ?? null,
-  };
+  });
 }
 
 /**

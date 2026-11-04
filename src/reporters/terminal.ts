@@ -1,3 +1,4 @@
+import { sanitizeForOutput } from '../sanitize.js';
 import chalk from 'chalk';
 import type { AuditResult, CategoryResult, RuleResult, RuleStatus } from '../types.js';
 import { getCategoryById } from '../categories/index.js';
@@ -262,6 +263,7 @@ function renderDetailsList(details: Array<{ key: string; value: string }>, maxIt
  * @param result - The audit result to render
  */
 export function renderTerminalReport(result: AuditResult): void {
+  result = sanitizeForOutput(result);
   console.log();
 
   // Report header

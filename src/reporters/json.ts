@@ -1,4 +1,5 @@
 import type { AuditResult } from '../types.js';
+import { sanitizeForOutput } from '../sanitize.js';
 
 /**
  * Custom JSON replacer function to handle Date objects
@@ -18,6 +19,7 @@ function jsonReplacer(_key: string, value: unknown): unknown {
  * @returns JSON string representation
  */
 export function renderJsonReport(result: AuditResult, prettyPrint = true): string {
+  result = sanitizeForOutput(result);
   if (prettyPrint) {
     return JSON.stringify(result, jsonReplacer, 2);
   }

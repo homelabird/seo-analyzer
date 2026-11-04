@@ -1,3 +1,4 @@
+import { sanitizeText } from '../sanitize.js';
 import ora, { type Ora } from 'ora';
 import cliProgress from 'cli-progress';
 import chalk from 'chalk';
@@ -55,6 +56,7 @@ export class ProgressReporter {
    * Note: Banner is now rendered separately before this is called
    */
   start(url: string): void {
+    url = sanitizeText(url);
     if (!this.shouldShowProgress()) {
       return;
     }
@@ -280,6 +282,7 @@ export class ProgressReporter {
 
   /** Shorten a URL to fit on the progress line */
   private truncateUrl(url: string): string {
+    url = sanitizeText(url);
     const maxUrlLength = 50;
     return url.length > maxUrlLength ? url.substring(0, maxUrlLength - 3) + '...' : url;
   }

@@ -1,3 +1,4 @@
+import { sanitizeForOutput } from '../../sanitize.js';
 import type Database from 'better-sqlite3';
 import type {
   DbAuditResult,
@@ -34,7 +35,7 @@ function hydrateCategory(row: DbAuditCategory): HydratedAuditCategory {
  * Hydrate an audit result record
  */
 function hydrateResult(row: DbAuditResult): HydratedAuditResult {
-  return {
+  return sanitizeForOutput({
     id: row.id,
     auditId: row.audit_id,
     categoryId: row.category_id,
@@ -48,7 +49,7 @@ function hydrateResult(row: DbAuditResult): HydratedAuditResult {
     details: row.details_json ? JSON.parse(row.details_json) : null,
     executedAt: parseSqliteUtc(row.executed_at),
     weight: row.weight ?? null,
-  };
+  });
 }
 
 // =============================================================================

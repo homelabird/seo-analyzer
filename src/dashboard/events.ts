@@ -1,3 +1,4 @@
+import { sanitizeForOutput } from '../sanitize.js';
 /**
  * Live run progress over Server-Sent Events.
  *
@@ -146,7 +147,7 @@ export class EventHub {
   /** @returns Whether the socket accepted the write without buffering */
   private write(stream: Stream, event: string, data: unknown): boolean {
     try {
-      return stream.res.write(`event: ${event}\ndata: ${JSON.stringify(data)}\n\n`);
+      return stream.res.write(`event: ${event}\ndata: ${JSON.stringify(sanitizeForOutput(data))}\n\n`);
     } catch {
       this.drop(stream);
       return false;

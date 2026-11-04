@@ -1,3 +1,4 @@
+import { sanitizeForOutput } from '../sanitize.js';
 import * as fs from 'fs';
 import * as path from 'path';
 import type { PartialSeomatorConfig } from '../config/schema.js';
@@ -53,7 +54,7 @@ function ensureReportsDir(baseDir: string): string {
 export function saveReport(baseDir: string, report: StoredReport): string {
   const reportsDir = ensureReportsDir(baseDir);
   const filePath = path.join(reportsDir, `${report.id}.json`);
-  fs.writeFileSync(filePath, JSON.stringify(report, null, 2), 'utf-8');
+  fs.writeFileSync(filePath, JSON.stringify(sanitizeForOutput(report), null, 2), 'utf-8');
   return report.id;
 }
 
@@ -69,7 +70,7 @@ export function loadReport(baseDir: string, id: string): StoredReport | null {
   }
 
   const content = fs.readFileSync(filePath, 'utf-8');
-  return JSON.parse(content);
+  return sanitizeForOutput(JSON.parse(content));
 }
 
 /**

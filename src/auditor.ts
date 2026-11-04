@@ -1,3 +1,4 @@
+import { sanitizeForOutput } from './sanitize.js';
 import type {
   AuditContext,
   AuditResult,
@@ -469,7 +470,7 @@ export class Auditor {
       this.runOptions(false, 1, 1),
       { pages: [url], detail: 'per-page' }
     );
-    return applyScoreCaps(result, pageCaps(readPageFacts(context), { staging: this.options.staging }));
+    return sanitizeForOutput(applyScoreCaps(result, pageCaps(readPageFacts(context), { staging: this.options.staging })));
   }
 
   /**
@@ -578,11 +579,11 @@ export class Auditor {
       { pages: crawledPages.map((p) => p.url), detail: 'per-page' }
     );
     const start = crawledPages.find((page) => page.url === site.entryUrl && !page.error);
-    if (!start) return result;
-    return applyScoreCaps(
+    if (!start) return sanitizeForOutput(result);
+    return sanitizeForOutput(applyScoreCaps(
       result,
       siteCaps(readPageFacts(start.context), start.url, { staging: this.options.staging })
-    );
+    ));
   }
 
   /**
@@ -681,7 +682,7 @@ export class Auditor {
           // Inject ruleId, weight and page URL for consistent tracking.
           // A result that set its own weight keeps it — that is how
           // notMeasured() opts a result out of scoring with weight 0.
-          const resultWithMeta: RuleResult = {
+          const resultWithMeta: RuleResult = sanitizeForOutput({
             ...result,
             ruleId: rule.id,
             weight: result.weight ?? rule.weight,
@@ -689,7 +690,7 @@ export class Auditor {
               ...result.details,
               pageUrl: context.url,
             },
-          };
+          });
           ruleResults.push(resultWithMeta);
           this.options.onRuleComplete(rule.id, rule.name, resultWithMeta);
         } catch (error) {
@@ -698,7 +699,7 @@ export class Auditor {
           rethrowIfAborted(error, this.options.signal);
 
           // Rule threw an error, treat as fail
-          const errorResult: RuleResult = {
+          const errorResult: RuleResult = sanitizeForOutput({
             ruleId: rule.id,
             status: 'fail',
             message: `Rule execution failed: ${error instanceof Error ? error.message : 'Unknown error'}`,
@@ -707,7 +708,7 @@ export class Auditor {
             details: {
               pageUrl: context.url,
             },
-          };
+          });
           ruleResults.push(errorResult);
           this.options.onRuleComplete(rule.id, rule.name, errorResult);
         }

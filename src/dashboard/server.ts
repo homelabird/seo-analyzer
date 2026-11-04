@@ -1,3 +1,4 @@
+import { sanitizeForOutput } from '../sanitize.js';
 /**
  * The dashboard's HTTP server.
  *
@@ -321,7 +322,7 @@ export function sendJson(
   body: unknown,
   headers: Record<string, string> = {}
 ): void {
-  const payload = body === undefined ? '' : JSON.stringify(body);
+  const payload = body === undefined ? '' : JSON.stringify(sanitizeForOutput(body));
   res.writeHead(status, {
     ...(payload ? { 'Content-Type': 'application/json; charset=utf-8' } : {}),
     'Content-Length': String(Buffer.byteLength(payload)),

@@ -1,3 +1,4 @@
+import { sanitizeForOutput } from '../sanitize.js';
 import type { AuditResult, RuleResult } from '../types.js';
 import { collectFindings, type Finding } from './findings.js';
 import { scoreToVerdict } from '../verdict.js';
@@ -68,6 +69,7 @@ function pageAttribution(finding: Finding): string {
 }
 
 export function renderMarkdownReport(result: AuditResult): string {
+  result = sanitizeForOutput(result);
   const lines: string[] = [];
   const timestamp = new Date(result.timestamp).toLocaleString();
 
