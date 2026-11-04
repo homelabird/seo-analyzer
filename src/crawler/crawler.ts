@@ -1,3 +1,4 @@
+import { safeFetch, readResponseBytes, currentNetworkSession, withNetworkSession, validateNetworkUrl } from './network.js';
 import * as cheerio from 'cheerio';
 import { fetchPage as defaultFetchPage, createAuditContext, type FetchPageOptions, type FetchResult } from './fetcher.js';
 import { rethrowIfAborted, throwIfAborted } from '../errors.js';
@@ -40,6 +41,8 @@ export interface CrawlProgress {
  * What a browser render contributes beyond the HTTP response.
  */
 export interface PageRenderResult {
+  unavailableReason?: string;
+  httpProtocol?: string;
   /** Core Web Vitals measured during the render */
   cwv: CoreWebVitals;
   /**
@@ -60,6 +63,8 @@ export interface PageRenderResult {
  * Options for the Crawler
  */
 export interface CrawlerOptions {
+  allowPrivate?: boolean;
+  perHostConcurrency?: number;
   /** Maximum pages to crawl */
   maxPages: number;
   /** Number of concurrent requests */
@@ -143,6 +148,7 @@ export class Crawler {
   /** Normalised entry URL, the root of the depth measurement */
   private entryUrl = '';
   private redirectAliases = new Map<string, string>();
+  private excludedUrls = new Set<string>();
   private hostname: string = '';
   private options: CrawlerOptions;
   private results: CrawledPage[] = [];
@@ -157,6 +163,8 @@ export class Crawler {
 
   constructor(options: Partial<CrawlerOptions> = {}) {
     this.options = {
+      allowPrivate: options.allowPrivate ?? false,
+      perHostConcurrency: options.perHostConcurrency ?? 2,
       maxPages: options.maxPages ?? 10,
       concurrency: options.concurrency ?? 3,
       timeout: options.timeout ?? 30000,
@@ -191,12 +199,12 @@ export class Crawler {
     try {
       const robotsUrl = new URL('/robots.txt', startUrl).href;
       const timeout = AbortSignal.timeout(this.options.timeout);
-      const response = await fetch(robotsUrl, {
+      const response = await safeFetch(robotsUrl, {
         headers: { 'User-Agent': getUserAgent() },
         signal: signal ? AbortSignal.any([signal, timeout]) : timeout,
       });
       if (!response.ok) return;
-      this.robots = new RobotsMatcher(await response.text(), getUserAgent());
+      this.robots = new RobotsMatcher(new TextDecoder().decode(await readResponseBytes(response, 1024 * 1024)), getUserAgent());
     } catch (error) {
       // Unreachable robots.txt is not a reason to refuse to crawl — but a
       // cancelled one is a cancelled crawl.
@@ -216,9 +224,12 @@ export class Crawler {
     maxPages?: number,
     concurrency?: number
   ): Promise<CrawledPage[]> {
+    if (!currentNetworkSession()) return withNetworkSession(this.options, () => this.crawl(startUrl, maxPages, concurrency));
+    validateNetworkUrl(startUrl, currentNetworkSession()?.allowPrivate ?? this.options.allowPrivate);
     // Reset state
     this.visited.clear();
     this.redirectAliases.clear();
+    this.excludedUrls.clear();
     this.queue = [];
     this.depthByUrl.clear();
     this.discoverySourceByUrl.clear();
@@ -354,6 +365,8 @@ export class Crawler {
       }
 
       // Render in a browser if a renderer was provided
+      let unavailableReason: string | undefined;
+      let httpProtocol: string | undefined;
       let cwv: CoreWebVitals = {};
       let renderedHtml: string | undefined;
       let diagnostics: RenderDiagnostics | undefined;
@@ -362,6 +375,8 @@ export class Crawler {
         try {
           const rendered = await this.options.renderPage(url);
           cwv = rendered.cwv;
+          httpProtocol = rendered.httpProtocol;
+          unavailableReason = rendered.unavailableReason;
           renderedHtml = rendered.html;
           diagnostics = rendered.diagnostics;
           assets = rendered.assets;
@@ -373,6 +388,8 @@ export class Crawler {
 
       // Create audit context
       const context = createAuditContext(url, fetchResult, cwv);
+      context.httpProtocol = httpProtocol;
+      context.renderUnavailableReason = unavailableReason;
       const identity = this.normalizeUrl(context.url);
       const requested = this.normalizeUrl(url);
       if (identity !== requested) {
@@ -469,6 +486,7 @@ export class Crawler {
       outboundLinksByUrl.set(from, targets);
     }
 
+    const excludedCount = [...this.excludedUrls].filter((url) => !pages.has(keyOf(url))).length;
     const discoverySourceByUrl = new Map<string, Set<DiscoverySource>>();
     for (const [url, sources] of this.discoverySourceByUrl) {
       const key = keyOf(url), merged = discoverySourceByUrl.get(key) ?? new Set<DiscoverySource>();
@@ -478,6 +496,7 @@ export class Crawler {
     return {
       entryUrl: keyOf(this.entryUrl),
       pageCount,
+      coverage: { complete: this.queue.length === 0 && excludedCount === 0 && !this.results.some((page) => page.error), limitReached: this.queue.length > 0, failed: this.results.filter((page) => page.error).length, excluded: excludedCount },
       depthByUrl: this.depthByUrl,
       inboundLinksByUrl,
       outboundLinksByUrl,
@@ -587,6 +606,7 @@ export class Crawler {
 
       // Skip nofollow links
       if (link.isNoFollow) {
+        if (!this.visited.has(normalizedUrl)) this.excludedUrls.add(normalizedUrl);
         continue;
       }
 
@@ -597,11 +617,13 @@ export class Crawler {
 
       // Apply include/exclude patterns from URL filter
       if (!this.urlFilter.shouldCrawl(normalizedUrl)) {
+        this.excludedUrls.add(normalizedUrl);
         continue;
       }
 
       // Respect the site's robots.txt, which until now was ignored entirely.
       if (this.robots && !this.robots.isAllowed(normalizedUrl)) {
+        this.excludedUrls.add(normalizedUrl);
         continue;
       }
 

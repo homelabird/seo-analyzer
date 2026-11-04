@@ -10,6 +10,7 @@ import { sanitizeText } from './sanitize.js';
  */
 
 export type AuditErrorCode =
+  | 'network-policy'
   | 'dns'
   | 'unreachable'
   | 'tls'
@@ -23,6 +24,7 @@ export type AuditErrorCode =
   | 'unknown';
 
 const HINTS: Partial<Record<AuditErrorCode, string>> = {
+  'network-policy': 'Private-network access is blocked. Use --allow-private only for an intended local or intranet audit.',
   dns: 'Check the hostname for typos and that you are online.',
   unreachable: 'Nothing answered at that address. Check the URL and port, that the site is running, and any firewall or proxy in between.',
   tls: 'The HTTPS certificate was rejected. Check it is valid for this hostname and not expired, or audit the http:// URL if the site has no certificate.',
@@ -110,6 +112,7 @@ export function classifyError(error: unknown): AuditError {
   const causeCode = cause?.code ?? '';
   const text = `${message} ${causeCode}`;
 
+  if (cause instanceof AuditError) return cause;
   if (isAbortError(error)) return new AuditAbortedError();
 
   if (/ENOTFOUND|EAI_AGAIN|getaddrinfo/i.test(text)) {

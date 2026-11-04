@@ -43,6 +43,7 @@ export const RUN_LIMITS = {
 
 /** What a client asks for when starting a run */
 export interface AuditRunArgs {
+  allowPrivate?: boolean;
   url: string;
   crawl?: boolean;
   maxPages?: number;
@@ -199,12 +200,15 @@ export function normalizeRunArgs(args: AuditRunArgs, capabilities: Capabilities)
   }
 
   const known = new Set(categoryDefinitions.map((c) => c.id));
-  const requested = (args.categories ?? []).filter((id) => known.has(id));
+  const requested = args.categories ?? [];
+  const unknown = requested.filter((id) => !known.has(id));
+  if (unknown.length) throw new Error(`Unknown category: ${unknown.join(', ')}`);
 
   const measureCwv = (args.measureCwv ?? true) && capabilities.browserRender;
 
   return {
     url: parsed.href,
+    allowPrivate: args.allowPrivate === true,
     crawl: args.crawl === true,
     maxPages: clamp(args.maxPages, RUN_LIMITS.maxPages),
     concurrency: clamp(args.concurrency, RUN_LIMITS.concurrency),
@@ -325,6 +329,7 @@ export class AuditSession {
         measureCwv: args.measureCwv,
         mobile: args.mobile,
         simulateInteraction: args.simulateInteraction,
+        allowPrivate: args.allowPrivate,
         categories: args.categories,
         timeout: args.timeout,
       },
@@ -466,8 +471,10 @@ export class AuditSession {
 
     const auditor = makeAuditor({
       ...this.options.auditorOptions,
+      allowPrivate: args.allowPrivate,
       categories: args.categories,
       timeout: args.timeout,
+      concurrency: args.concurrency,
       measureCwv: args.measureCwv,
       mobileParity: args.mobile,
       simulateInteraction: args.simulateInteraction,
@@ -543,7 +550,8 @@ export class AuditSession {
               measureCwv: args.measureCwv,
               mobile: args.mobile,
               simulateInteraction: args.simulateInteraction,
-              categories: args.categories,
+              allowPrivate: args.allowPrivate,
+        categories: args.categories,
               timeout: args.timeout,
             },
           });

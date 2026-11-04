@@ -24,6 +24,7 @@ interface AuditRunnerProps {
 const STORAGE_KEY = 'seomator:run-options';
 
 interface StoredOptions {
+  allowPrivate: boolean;
   measureCwv: boolean;
   crawl: boolean;
   maxPages: number;
@@ -33,6 +34,7 @@ interface StoredOptions {
 }
 
 const DEFAULTS: StoredOptions = {
+  allowPrivate: false,
   measureCwv: false,
   crawl: false,
   maxPages: 10,
@@ -44,7 +46,7 @@ const DEFAULTS: StoredOptions = {
 function loadOptions(): StoredOptions {
   try {
     const raw = localStorage.getItem(STORAGE_KEY);
-    return raw ? { ...DEFAULTS, ...(JSON.parse(raw) as Partial<StoredOptions>) } : DEFAULTS;
+    return raw ? { ...DEFAULTS, ...(JSON.parse(raw) as Partial<StoredOptions>), allowPrivate: false } : DEFAULTS;
   } catch {
     // Private windows and cleared site data both land here.
     return DEFAULTS;
@@ -68,7 +70,7 @@ export function AuditRunner({
 
   useEffect(() => {
     try {
-      localStorage.setItem(STORAGE_KEY, JSON.stringify(options));
+      localStorage.setItem(STORAGE_KEY, JSON.stringify({ ...options, allowPrivate: false }));
     } catch {
       // Not being able to remember a preference is not worth surfacing.
     }
@@ -84,6 +86,7 @@ export function AuditRunner({
     const normalized = /^https?:\/\//i.test(trimmed) ? trimmed : `https://${trimmed}`;
 
     onRun(normalized, {
+      allowPrivate: options.allowPrivate,
       measureCwv: options.measureCwv,
       crawl: options.crawl,
       ...(options.crawl && { maxPages: options.maxPages, concurrency: options.concurrency }),
@@ -128,6 +131,7 @@ export function AuditRunner({
       </div>
 
       <div className="flex flex-wrap gap-x-10 gap-y-1">
+        <Option label="Allow local/private networks" hint="Enable only for a local or intranet site you intend to audit." checked={options.allowPrivate} disabled={isRunning} onChange={(value) => set('allowPrivate', value)} />
         <Option
           label="Core Web Vitals"
           hint="Opens the page in a real browser to measure loading speed. Adds about a minute."

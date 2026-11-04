@@ -8,6 +8,7 @@ import { warnUnimplementedFlags } from './unimplemented-flags.js';
 import { toUrlFilterOptions } from '../config/url-filter-options.js';
 
 export interface CrawlOptions {
+  allowPrivate?: boolean;
   maxPages?: number;
   refresh: boolean;
   resume: boolean;
@@ -19,7 +20,7 @@ export async function runCrawl(url: string, options: CrawlOptions): Promise<void
   warnUnimplementedFlags(options as unknown as Record<string, unknown>);
 
   // Load config
-  const { config } = loadConfig(process.cwd());
+  const { config } = loadConfig(process.cwd(), { crawler: { allow_private: options.allowPrivate } });
 
   setUserAgent(config.crawler.user_agent);
 
@@ -40,6 +41,8 @@ export async function runCrawl(url: string, options: CrawlOptions): Promise<void
   // Create crawler
   const crawler = new Crawler({
     maxPages,
+    allowPrivate: config.crawler.allow_private,
+    perHostConcurrency: config.crawler.per_host_concurrency,
     concurrency: config.crawler.concurrency,
     timeout: config.crawler.timeout_ms,
     respectRobots: config.crawler.respect_robots,

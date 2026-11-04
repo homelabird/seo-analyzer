@@ -210,6 +210,8 @@ export interface SitemapDocument {
  * Result of discovering and fetching a site's sitemap(s)
  */
 export interface SitemapFetchResult {
+  /** URL inventory may have been truncated by its collection limit. */
+  truncated?: boolean;
   /** Raw XML of the first sitemap fetched */
   content?: string;
   /** Every page URL found, across nested sitemaps */
@@ -386,6 +388,8 @@ export interface InboundEdge {
 }
 
 export interface SiteContext {
+  /** Whether the crawl exhausted its allowed frontier without fetch failures. */
+  coverage?: { complete: boolean; limitReached: boolean; failed?: number; excluded?: number };
   /** The URL the crawl started from, normalised */
   entryUrl: string;
   /** Number of pages successfully crawled */
@@ -491,6 +495,10 @@ export interface SchemaNodeSummary {
  * Context passed to each audit rule's run function
  */
 export interface AuditContext {
+  /** Evidence observed on the authenticated connection/browser navigation. */
+  tls?: { validTo?: string; protocol?: string };
+  httpProtocol?: string;
+  renderUnavailableReason?: string;
   /** Original navigation address, before redirects. */
   requestedUrl?: string;
   /** Final document URL, overridden by the first valid HTML base href. */
@@ -553,6 +561,7 @@ export interface AuditContext {
   sitemapDocuments?: SitemapDocument[];
   /** Child sitemaps an index listed that were not fetched, because a limit was reached */
   sitemapSkippedCount?: number;
+  sitemapTruncated?: boolean;
   /** Redirect chain followed to reach this page */
   redirectChain?: RedirectChainEntry[];
 
@@ -724,6 +733,8 @@ export const AUDIT_SCHEMA_VERSION = 2;
  * to be able to say so.
  */
 export interface AuditRunOptions {
+  /** Private-network access was explicitly enabled for this run. */
+  allowPrivate?: boolean;
   crawl: boolean;
   maxPages: number;
   concurrency: number;
@@ -757,6 +768,8 @@ export interface AuditRunOptions {
  * returned almost nothing for the pages it did offer.
  */
 export interface AuditCoverage {
+  unavailableMeasurements?: string[];
+  crawl?: SiteContext['coverage'];
   /** Every page URL the audit covered, in crawl order. */
   pages: string[];
   /**

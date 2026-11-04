@@ -1,6 +1,6 @@
 import { sanitizeText } from './sanitize.js';
 import chalk from 'chalk';
-import { Command, InvalidArgumentError, Option } from 'commander';
+import { Command, CommanderError, InvalidArgumentError, Option } from 'commander';
 import { getCategoryIds } from './categories/index.js';
 import { getVersion } from './version.js';
 import { OUTPUT_FORMATS, type AuditOptions } from './commands/audit.js';
@@ -106,14 +106,14 @@ function parseEnum<T extends string>(
  * Parse integer value with validation
  */
 function parseIntValue(value: string, name: string, min: number, max: number): number {
-  const parsed = parseInt(value, 10);
+  const parsed = /^\d+$/.test(value) ? Number(value) : NaN;
   if (isNaN(parsed) || parsed < min || parsed > max) {
     throw new InvalidArgumentError(`${name} must be between ${min} and ${max}`);
   }
   return parsed;
 }
 
-const program = new Command();
+const program = new Command().exitOverride();
 
 program
   .configureOutput({ writeErr: (text) => { process.stderr.write(sanitizeText(text)); } })
@@ -136,10 +136,11 @@ program
     (v) => parseEnum(v, 'format', OUTPUT_FORMATS)
   )
   .option('-o, --output <path>', 'Output file path (for html/markdown/json)')
+  .option('--allow-private', 'Allow connections to local and private networks')
   .option('--crawl', 'Enable multi-page crawl', false)
-  .option('-m, --max-pages <n>', 'Max pages to crawl', (v) => parseIntValue(v, 'max-pages', 1, 1000), 10)
-  .option('--concurrency <n>', 'Concurrent requests', (v) => parseIntValue(v, 'concurrency', 1, 20), 3)
-  .option('--timeout <ms>', 'Request timeout', (v) => parseIntValue(v, 'timeout', 1000, 120000), 30000)
+  .option('-m, --max-pages <n>', 'Max pages to crawl', (v) => parseIntValue(v, 'max-pages', 1, 1000))
+  .option('--concurrency <n>', 'Concurrent requests', (v) => parseIntValue(v, 'concurrency', 1, 20))
+  .option('--timeout <ms>', 'Request timeout', (v) => parseIntValue(v, 'timeout', 1000, 120000))
   .option('-v, --verbose', 'Show progress', false)
   .option('--no-cwv', 'Skip Core Web Vitals')
   .option('--mobile', 'Also render at a mobile viewport and run mobile-first parity checks (single-page)', false)
@@ -197,6 +198,7 @@ program
   .command('crawl')
   .argument('<url>', 'URL to crawl', validateUrl)
   .description('Crawl website without analysis')
+  .option('--allow-private', 'Allow connections to local and private networks')
   .option('-m, --max-pages <n>', 'Max pages to crawl', (v) => parseIntValue(v, 'max-pages', 1, 1000))
   .addOption(new Option('-r, --refresh').hideHelp().default(false))
   .addOption(new Option('--resume').hideHelp().default(false))
@@ -208,6 +210,7 @@ program
 program
   .command('analyze [crawl-id]')
   .description('Run rules on stored crawl data')
+  .option('--allow-private', 'Allow network checks to local and private networks')
   .option('-c, --categories <list>', 'Categories to analyze', parseCategories)
   .option('--latest', 'Use most recent crawl', false)
   .option('--no-save', 'Do not store this analysis in the history database')
@@ -294,4 +297,13 @@ selfCommand
   .option('-v, --verbose', 'Show detailed output', false)
   .action(runSelfDoctor);
 
-program.parse();
+// Input errors are distinct from an audit whose measured score is below threshold.
+try {
+  await program.parseAsync();
+} catch (error) {
+  if (error instanceof CommanderError) process.exitCode = error.exitCode === 0 ? 0 : 2;
+  else {
+    console.error(sanitizeText(error instanceof Error ? error.message : String(error)));
+    process.exitCode = 2;
+  }
+}

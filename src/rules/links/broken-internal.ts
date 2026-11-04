@@ -1,5 +1,5 @@
 import type { AuditContext } from '../../types.js';
-import { defineRule, pass, warn, fail } from '../define-rule.js';
+import { defineRule, pass, warn, fail, notMeasured } from '../define-rule.js';
 import { fetchUrl } from '../../crawler/fetcher.js';
 import { rethrowIfAborted } from '../../errors.js';
 import { internalLinkTargets } from './link-targets.js';
@@ -33,20 +33,13 @@ export const brokenInternalRule = defineRule({
     // answered 200 when asked again, so it is reported apart from broken.
     const uncheckedLinks: string[] = [];
 
-    for (const href of targets) {
-      let statusCode: number;
-      try {
-        statusCode = await fetchUrl(href, 10000, context.signal);
-      } catch (error) {
-        rethrowIfAborted(error, context.signal);
-        statusCode = 0;
-      }
-
-      if (statusCode === 0) {
-        uncheckedLinks.push(href);
-      } else if (statusCode === 404 || statusCode === 410 || statusCode >= 500) {
-        brokenLinks.push({ href, statusCode });
-      }
+    const checked = await Promise.all(targets.map(async (href) => {
+      try { return { href, statusCode: await fetchUrl(href, 10000, context.signal) }; }
+      catch (error) { rethrowIfAborted(error, context.signal); return { href, statusCode: 0 }; }
+    }));
+    for (const { href, statusCode } of checked) {
+      if (statusCode === 0) uncheckedLinks.push(href);
+      else if (statusCode === 404 || statusCode === 410 || statusCode >= 500) brokenLinks.push({ href, statusCode });
     }
 
     const details = {
@@ -71,7 +64,7 @@ export const brokenInternalRule = defineRule({
     }
 
     if (uncheckedLinks.length > 0) {
-      return warn(
+      return notMeasured(
         'links-broken-internal',
         `No broken internal links found, but ${uncheckedLinks.length} of ${targets.length} could not be checked (timeout or network error)`,
         details

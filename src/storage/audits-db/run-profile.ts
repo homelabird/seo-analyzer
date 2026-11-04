@@ -35,6 +35,7 @@ const LABELS: Record<string, string> = {
   disableRules: 'disabled rules',
   maxPages: 'page limit',
   staging: 'staging mode',
+  allowPrivate: 'private-network access',
 };
 
 /**
@@ -44,6 +45,7 @@ const LABELS: Record<string, string> = {
  */
 const ABSENT_MEANS: Partial<Record<keyof AuditRunOptions, unknown>> = {
   staging: false,
+  allowPrivate: false,
 };
 
 /**
@@ -68,6 +70,7 @@ const MATERIAL = new Set([
   // Staging waives the noindex and robots.txt caps: the same site scores 20
   // in production and its average in staging.
   'staging',
+  'allowPrivate',
 ]);
 
 function render(option: string, value: unknown): string {

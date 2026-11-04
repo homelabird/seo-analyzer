@@ -1,3 +1,4 @@
+import { safeFetch } from '../../crawler/network.js';
 import type { AuditContext } from '../../types.js';
 import { defineRule, pass, warn } from '../define-rule.js';
 import { registerResettable } from '../registry.js';
@@ -34,7 +35,7 @@ function contentLength(url: string, signal?: AbortSignal): Promise<number | null
     const timer = setTimeout(() => controller.abort(), 8000);
     const requestSignal = signal ? AbortSignal.any([signal, controller.signal]) : controller.signal;
     try {
-      const response = await fetch(url, {
+      const response = await safeFetch(url, {
         method: 'HEAD',
         redirect: 'follow',
         signal: requestSignal,

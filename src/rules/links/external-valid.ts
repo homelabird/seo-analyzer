@@ -1,5 +1,5 @@
 import type { AuditContext } from '../../types.js';
-import { defineRule, pass, warn } from '../define-rule.js';
+import { defineRule, pass, warn, notMeasured } from '../define-rule.js';
 import { fetchUrl } from '../../crawler/fetcher.js';
 import { rethrowIfAborted } from '../../errors.js';
 
@@ -27,28 +27,21 @@ export const externalValidRule = defineRule({
     const unreachableLinks: Array<{ href: string; statusCode: number }> = [];
 
     // Check each external link (limit to first 20 to avoid excessive requests)
-    const linksToCheck = externalLinks.slice(0, 20);
+    const linksToCheck = [...new Map(externalLinks.map((link) => [link.href.split('#')[0], { ...link, href: link.href.split('#')[0] }])).values()].slice(0, 20);
+    let unavailable = 0;
 
-    for (const link of linksToCheck) {
-      try {
-        const statusCode = await fetchUrl(link.href, 10000, context.signal);
-
-        // Consider link unreachable if 4xx, 5xx, or network error (0)
-        if (statusCode === 0 || statusCode >= 400) {
-          unreachableLinks.push({
-            href: link.href,
-            statusCode,
-          });
-        }
-      } catch (error) {
-        rethrowIfAborted(error, context.signal);
-        unreachableLinks.push({
-          href: link.href,
-          statusCode: 0,
-        });
-      }
+    const checked = await Promise.all(linksToCheck.map(async (link) => {
+      try { return { href: link.href, statusCode: await fetchUrl(link.href, 10000, context.signal) }; }
+      catch (error) { rethrowIfAborted(error, context.signal); return { href: link.href, statusCode: 0 }; }
+    }));
+    for (const result of checked) {
+      if (result.statusCode === 0) unavailable++;
+      else if (result.statusCode >= 400) unreachableLinks.push(result);
     }
 
+    if (unavailable > 0 && unreachableLinks.length === 0) {
+      return notMeasured('links-external-valid', `${unavailable} of ${linksToCheck.length} external targets could not be measured`, { totalChecked: linksToCheck.length - unavailable, totalExternal: externalLinks.length, unavailable });
+    }
     if (unreachableLinks.length > 0) {
       return warn(
         'links-external-valid',

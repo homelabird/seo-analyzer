@@ -14,6 +14,8 @@ import {
   outputLlmReport,
   renderBanner,
 } from '../reporters/index.js';
+import { validateConfig } from '../config/index.js';
+import { AuditError } from '../errors.js';
 import { loadConfig } from '../config/index.js';
 import { toUrlFilterOptions } from '../config/url-filter-options.js';
 import { selectsRuleSubset, RULE_FILTER_NOTICE } from '../config/validator.js';
@@ -35,12 +37,13 @@ export const OUTPUT_FORMATS = ['console', 'json', 'html', 'markdown', 'llm'] as 
 export type OutputFormat = (typeof OUTPUT_FORMATS)[number];
 
 export interface AuditOptions {
+  allowPrivate?: boolean;
   categories?: string[];
   json: boolean;
   crawl: boolean;
-  maxPages: number;
-  concurrency: number;
-  timeout: number;
+  maxPages?: number;
+  concurrency?: number;
+  timeout?: number;
   verbose: boolean;
   cwv: boolean;
   mobile?: boolean;
@@ -188,8 +191,8 @@ export async function runAudit(url: string, options: AuditOptions): Promise<void
   // A synthetic interaction only means anything during a browser render.
   const simulateInteraction = options.simulateInteraction === true && measureCwv;
   const selectedCategories: string[] = options.categories ?? [];
-  const maxPages: number = options.maxPages;
-  const concurrency: number = options.concurrency;
+  const maxPages = options.maxPages;
+  const concurrency = options.concurrency;
 
   // Load config before resolving output, not after. Format used to be decided
   // on the line above this call, so `[output] format` and `[output] path` in
@@ -210,6 +213,7 @@ export async function runAudit(url: string, options: AuditOptions): Promise<void
           max_pages: maxPages,
           concurrency,
           timeout_ms: options.timeout,
+          allow_private: options.allowPrivate,
         },
       },
       options.config
@@ -219,6 +223,12 @@ export async function runAudit(url: string, options: AuditOptions): Promise<void
     return;
   }
   const { config, configPath } = loaded;
+  const validation = validateConfig(config);
+  if (!validation.valid) {
+    reportAuditError(new AuditError('config', validation.errors.map((e) => `${e.path}: ${e.message}`).join('; ')), url, isDocumentFormat(cliFormat), cliFormat === 'json');
+    return;
+  }
+  for (const warning of validation.warnings) console.error(sanitizeText(`Config: ${warning.message}`));
 
   warnUnimplementedFlags(options as unknown as Record<string, unknown>);
 
@@ -296,6 +306,9 @@ export async function runAudit(url: string, options: AuditOptions): Promise<void
     // Create auditor with options and callbacks
     const auditor = new Auditor({
       categories: selectedCategories,
+      allowPrivate: config.crawler.allow_private,
+      perHostConcurrency: config.crawler.per_host_concurrency,
+      concurrency: config.crawler.concurrency,
       timeout: config.crawler.timeout_ms,
       measureCwv,
       mobileParity,

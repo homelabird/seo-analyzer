@@ -26,6 +26,7 @@ import { SCORING_VERSION } from '../scoring.js';
 import { applyScoreCaps, readPageFacts, siteCaps } from '../score-caps.js';
 
 export interface AnalyzeOptions {
+  allowPrivate?: boolean;
   categories?: string[];
   latest: boolean;
   /** Store the analysis in the history database. True unless `--no-save`. */
@@ -115,7 +116,7 @@ export function announceAnalysis(crawl: Pick<StoredCrawl, 'id' | 'url' | 'pages'
 }
 
 export async function runAnalyze(crawlId: string | undefined, options: AnalyzeOptions): Promise<void> {
-  const { config } = loadConfig(process.cwd());
+  const { config } = loadConfig(process.cwd(), { crawler: { allow_private: options.allowPrivate } });
   const baseDir = process.cwd();
 
   const persistence = resolvePersistence({
@@ -171,6 +172,9 @@ export async function runAnalyze(crawlId: string | undefined, options: AnalyzeOp
   await loadAllRules();
 
   const auditor = new Auditor({
+    allowPrivate: config.crawler.allow_private,
+    concurrency: config.crawler.concurrency,
+    perHostConcurrency: config.crawler.per_host_concurrency,
     categories: options.categories,
     // `analyze` reads the same seomator.toml as `audit`, so a rule filter
     // applies to both. Analysing a stored crawl under different rules than the

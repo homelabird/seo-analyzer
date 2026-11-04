@@ -10,6 +10,7 @@ export function getDefaultConfig(): SeomatorConfig {
       domains: [],
     },
     crawler: {
+      allow_private: false,
       max_pages: 100,
       delay_ms: 100,
       timeout_ms: 30000,

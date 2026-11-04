@@ -10,6 +10,7 @@ export interface ProjectConfig {
  * Crawler configuration section
  */
 export interface CrawlerConfig {
+  allow_private: boolean;
   max_pages: number;
   delay_ms: number;
   timeout_ms: number;

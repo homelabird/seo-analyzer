@@ -67,7 +67,7 @@ function makeFakeAuditor() {
 }
 
 describe('normalizeRunArgs', () => {
-  it('clamps numbers and drops unknown categories', () => {
+  it('clamps numbers and preserves valid categories', () => {
     const args = normalizeRunArgs(
       {
         url: URL_UNDER_TEST,
@@ -75,7 +75,7 @@ describe('normalizeRunArgs', () => {
         maxPages: 99999,
         concurrency: 0,
         timeout: 5,
-        categories: ['core', 'not-a-category', 'perf'],
+        categories: ['core', 'perf'],
       },
       DEFAULT_CAPABILITIES
     );

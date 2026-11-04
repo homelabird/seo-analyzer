@@ -1,5 +1,5 @@
 import type { AuditContext } from '../../types.js';
-import { defineRule, pass, warn, fail } from '../define-rule.js';
+import { defineRule, pass, warn, fail, notMeasured } from '../define-rule.js';
 import { fetchUrlWithRedirects } from '../../crawler/fetcher.js';
 import { rethrowIfAborted } from '../../errors.js';
 import { internalLinkTargets } from './link-targets.js';
@@ -42,25 +42,20 @@ export const redirectChainsRule = defineRule({
       chain: string[];
     }> = [];
 
-    // Check each sampled link
-    for (const url of sampled) {
-      try {
-        const result = await fetchUrlWithRedirects(url, 10000, 5, context.signal);
-
-        if (result.redirectCount > 0) {
-          redirectingLinks.push({
-            url,
-            finalUrl: result.finalUrl,
-            redirectCount: result.redirectCount,
-            chain: result.chain,
-          });
-        }
-      } catch (error) {
-        rethrowIfAborted(error, context.signal);
-        // Skip errors
-      }
+    let measured = 0;
+    const checked = await Promise.all(sampled.map(async (url) => {
+      try { return { url, result: await fetchUrlWithRedirects(url, 10000, 20, context.signal) }; }
+      catch (error) { rethrowIfAborted(error, context.signal); return { url, result: undefined }; }
+    }));
+    for (const { url, result } of checked) {
+      if (!result || result.statusCode === 0) continue;
+      measured++;
+      if (result.redirectCount > 0) redirectingLinks.push({ url, finalUrl: result.finalUrl, redirectCount: result.redirectCount, chain: result.chain });
     }
 
+    if (measured < sampleSize && redirectingLinks.length === 0) {
+      return notMeasured('links-redirect-chains', `${sampleSize - measured} of ${sampleSize} redirect probes were unavailable`, { totalChecked: measured, sampled: sampleSize });
+    }
     if (redirectingLinks.length === 0) {
       return pass(
         'links-redirect-chains',

@@ -1,3 +1,4 @@
+import { safeFetch, readResponseBytes } from '../../crawler/network.js';
 import { registerResettable } from '../registry.js';
 import { getUserAgent } from '../../crawler/user-agent.js';
 
@@ -38,12 +39,12 @@ export function probeOnce(
     const timer = setTimeout(() => controller.abort(), 8000);
     const requestSignal = signal ? AbortSignal.any([signal, controller.signal]) : controller.signal;
     try {
-      const response = await fetch(url, {
+      const response = await safeFetch(url, {
         headers: { 'User-Agent': getUserAgent(), ...headers },
         redirect: 'follow',
         signal: requestSignal,
       });
-      const body = (await response.text()).slice(0, 4000);
+      const body = (new TextDecoder().decode(await readResponseBytes(response, 1024 * 1024))).slice(0, 4000);
       return {
         status: response.status,
         contentType: response.headers.get('content-type') || '',

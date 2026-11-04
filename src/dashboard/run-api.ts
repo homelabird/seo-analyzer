@@ -1,3 +1,4 @@
+import { getCategoryIds } from '../categories/index.js';
 /**
  * Starting, watching and cancelling a run over HTTP.
  *
@@ -23,6 +24,7 @@ import {
 
 /** Everything a run request may carry. Anything else is a 400. */
 const ALLOWED_OPTIONS = new Set([
+  'allowPrivate',
   'crawl',
   'maxPages',
   'concurrency',
@@ -40,7 +42,7 @@ const NUMERIC_OPTIONS = {
   timeout: RUN_LIMITS.timeout,
 } as const;
 
-const BOOLEAN_OPTIONS = ['crawl', 'measureCwv', 'mobile', 'simulateInteraction', 'save'] as const;
+const BOOLEAN_OPTIONS = ['allowPrivate', 'crawl', 'measureCwv', 'mobile', 'simulateInteraction', 'save'] as const;
 
 function invalidOption(option: string, allowed: unknown, received: unknown): ApiError {
   return new ApiError(400, 'invalid-option', `"${option}" is not valid.`, {
@@ -101,6 +103,9 @@ export function parseRunArgs(body: Record<string, unknown>): AuditRunArgs {
   if (categories !== undefined) {
     if (!Array.isArray(categories) || categories.some((c) => typeof c !== 'string')) {
       throw invalidOption('categories', 'an array of category ids', categories);
+    }
+    if ((categories as string[]).some((id) => !getCategoryIds().includes(id))) {
+      throw invalidOption('categories', getCategoryIds(), categories);
     }
     args.categories = categories as string[];
   }

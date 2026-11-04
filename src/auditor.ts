@@ -1,3 +1,4 @@
+import { safeFetch, readResponseBytes, withNetworkSession, currentNetworkSession, validateNetworkUrl, isNetworkPolicyError } from './crawler/network.js';
 import { sanitizeForOutput } from './sanitize.js';
 import type {
   AuditContext,
@@ -113,6 +114,12 @@ export function markSitemapDiscoverySources(
  * Options for configuring the Auditor
  */
 export interface AuditorOptions {
+  /** Explicit permission to connect to local/intranet addresses. */
+  allowPrivate?: boolean;
+  /** Maximum simultaneous HTTP requests to each host. */
+  perHostConcurrency?: number;
+  /** Maximum simultaneous HTTP probes across hosts. */
+  concurrency?: number;
   /** Categories to audit (empty array = all categories) */
   categories?: string[];
   /** Request timeout in milliseconds */
@@ -201,6 +208,9 @@ export class Auditor {
 
   constructor(options: AuditorOptions = {}) {
     this.options = {
+      allowPrivate: options.allowPrivate ?? false,
+      perHostConcurrency: options.perHostConcurrency ?? 2,
+      concurrency: options.concurrency ?? 3,
       categories: options.categories ?? [],
       timeout: options.timeout ?? 30000,
       measureCwv: options.measureCwv ?? false,
@@ -269,7 +279,7 @@ export class Auditor {
       const controller = new AbortController();
       const timeoutId = setTimeout(() => controller.abort(), 5000);
       try {
-        const response = await fetch(robotsUrl, {
+        const response = await safeFetch(robotsUrl, {
           signal: signal ? AbortSignal.any([signal, controller.signal]) : controller.signal,
           headers: {
             'User-Agent': getUserAgent(),
@@ -277,7 +287,7 @@ export class Auditor {
         });
         clearTimeout(timeoutId);
         if (response.ok) {
-          return await response.text();
+          return new TextDecoder().decode(await readResponseBytes(response, 1024 * 1024));
         }
       } finally {
         clearTimeout(timeoutId);
@@ -327,6 +337,7 @@ export class Auditor {
     context.sitemapIsIndex = sitemap.isIndex;
     context.sitemapDocuments = sitemap.documents;
     context.sitemapSkippedCount = sitemap.skippedSitemaps;
+    context.sitemapTruncated = sitemap.truncated;
   }
 
   /**
@@ -335,6 +346,11 @@ export class Auditor {
    * @returns AuditResult for the page
    */
   async audit(url: string): Promise<AuditResult> {
+    return withNetworkSession(this.options, async () => sanitizeForOutput(await this.auditPage(url)));
+  }
+
+  private async auditPage(url: string): Promise<AuditResult> {
+    validateNetworkUrl(url, this.options.allowPrivate);
     throwIfAborted(this.options.signal);
     await this.ensureRulesLoaded();
     resetCrossPageState();
@@ -378,6 +394,8 @@ export class Auditor {
 
     // Get Core Web Vitals and rendered DOM if enabled
     let cwv: CoreWebVitals = {};
+    let renderUnavailableReason: string | undefined;
+    let httpProtocol: string | undefined;
     let renderedHtml: string | undefined;
     let rendered$: import('cheerio').CheerioAPI | undefined;
     let renderDiagnostics: RenderDiagnostics | undefined;
@@ -387,11 +405,12 @@ export class Auditor {
     if (this.options.measureCwv) {
       const fetcher = this.options.browserFetcher ?? fetchPageWithPlaywright;
       try {
-        const pwResult = await fetcher(url, this.options.timeout, {
+        const pwResult = await fetcher(new URL(url).username || new URL(url).password ? url : (fetchResult.finalUrl ?? url), this.options.timeout, {
           simulateInteraction: this.options.simulateInteraction,
           ...(this.options.signal && { signal: this.options.signal }),
         });
         cwv = pwResult.cwv;
+        httpProtocol = pwResult.httpProtocol;
         renderDiagnostics = pwResult.diagnostics;
         assets = pwResult.assets;
         // Capture rendered HTML for JS rendering rules
@@ -422,6 +441,7 @@ export class Auditor {
         }
       } catch (error) {
         rethrowIfAborted(error, this.options.signal);
+        renderUnavailableReason = error instanceof Error ? error.message : 'Browser render unavailable';
         // CWV measurement failed, continue without it
       } finally {
         // Clean up Playwright browser (only when not using an injected fetcher)
@@ -433,6 +453,8 @@ export class Auditor {
 
     // Create audit context
     const context = createAuditContext(url, fetchResult, cwv);
+    context.httpProtocol = httpProtocol;
+    context.renderUnavailableReason = renderUnavailableReason;
     if (this.options.signal) {
       context.signal = this.options.signal;
     }
@@ -468,9 +490,9 @@ export class Auditor {
       1,
       buildPageSnapshot(context),
       this.runOptions(false, 1, 1),
-      { pages: [context.url], detail: 'per-page' }
+      { pages: [context.url], detail: 'per-page', ...(renderUnavailableReason && { unavailableMeasurements: [renderUnavailableReason] }) }
     );
-    return sanitizeForOutput(applyScoreCaps(result, pageCaps(readPageFacts(context), { staging: this.options.staging })));
+    return applyScoreCaps(result, pageCaps(readPageFacts(context), { staging: this.options.staging }));
   }
 
   /**
@@ -485,6 +507,12 @@ export class Auditor {
     maxPages = 10,
     concurrency = 3
   ): Promise<AuditResult> {
+    return withNetworkSession({ ...this.options, concurrency }, async () =>
+      sanitizeForOutput(await this.auditCrawl(url, maxPages, concurrency)));
+  }
+
+  private async auditCrawl(url: string, maxPages: number, concurrency: number): Promise<AuditResult> {
+    validateNetworkUrl(url, this.options.allowPrivate);
     throwIfAborted(this.options.signal);
     await this.ensureRulesLoaded();
     resetCrossPageState();
@@ -496,6 +524,8 @@ export class Auditor {
     // Create crawler with browser rendering if enabled
     const fetcher = this.options.browserFetcher ?? fetchPageWithPlaywright;
     const crawler = new Crawler({
+      allowPrivate: this.options.allowPrivate,
+      perHostConcurrency: this.options.perHostConcurrency,
       maxPages,
       concurrency,
       timeout: this.options.timeout,
@@ -517,13 +547,14 @@ export class Auditor {
               // available" on every page of every crawl.
               return {
                 cwv: result.cwv,
+                httpProtocol: result.httpProtocol,
                 html: result.html,
                 diagnostics: result.diagnostics,
                 assets: result.assets,
               };
             } catch (error) {
               rethrowIfAborted(error, this.options.signal);
-              return { cwv: {} };
+              return { cwv: {}, unavailableReason: error instanceof Error ? error.message : 'Browser render unavailable' };
             }
           }
         : undefined,
@@ -573,17 +604,17 @@ export class Auditor {
       allCategoryResults,
       this.categoriesToAudit,
       timestamp,
-      crawledPages.length,
+      crawledPages.filter((page) => !page.error).length,
       undefined,
       this.runOptions(true, maxPages, concurrency),
-      { pages: crawledPages.map((p) => p.context.url), detail: 'per-page' }
+      { pages: crawledPages.filter((p) => !p.error).map((p) => p.context.url), detail: 'per-page', crawl: site.coverage, unavailableMeasurements: crawledPages.flatMap((p) => p.context.renderUnavailableReason ? [`${p.context.url}: ${p.context.renderUnavailableReason}`] : []) }
     );
     const start = crawledPages.find((page) => site.normalize(page.url) === site.entryUrl && !page.error);
-    if (!start) return sanitizeForOutput(result);
-    return sanitizeForOutput(applyScoreCaps(
+    if (!start) return result;
+    return applyScoreCaps(
       result,
       siteCaps(readPageFacts(start.context), start.url, { staging: this.options.staging })
-    ));
+    );
   }
 
   /**
@@ -600,6 +631,7 @@ export class Auditor {
    * @returns One CategoryResult per audited category
    */
   async auditPages(pages: CrawledPage[]): Promise<CategoryResult[]> {
+    if (!currentNetworkSession()) return withNetworkSession(this.options, () => this.auditPages(pages));
     const crawledPages = pages;
     // Collect all rule results per category across all pages
     const categoryRuleResults = new Map<string, RuleResult[]>();
@@ -650,6 +682,7 @@ export class Auditor {
    * @returns Array of CategoryResult
    */
   async runAllCategories(context: AuditContext): Promise<CategoryResult[]> {
+    if (!currentNetworkSession()) return withNetworkSession(this.options, () => this.runAllCategories(context));
     const results: CategoryResult[] = [];
 
     for (const category of this.categoriesToAudit) {
@@ -701,10 +734,10 @@ export class Auditor {
           // Rule threw an error, treat as fail
           const errorResult: RuleResult = sanitizeForOutput({
             ruleId: rule.id,
-            status: 'fail',
+            status: isNetworkPolicyError(error) ? 'not-measured' : 'fail',
             message: `Rule execution failed: ${error instanceof Error ? error.message : 'Unknown error'}`,
-            score: 0,
-            weight: rule.weight,
+            score: isNetworkPolicyError(error) ? 50 : 0,
+            weight: isNetworkPolicyError(error) ? 0 : rule.weight,
             details: {
               pageUrl: context.url,
             },
@@ -743,6 +776,7 @@ export class Auditor {
       simulateInteraction: this.options.simulateInteraction,
       categories: this.options.categories,
       scoringVersion: SCORING_VERSION,
+      allowPrivate: this.options.allowPrivate,
       enableRules: this.options.enableRules,
       disableRules: this.options.disableRules,
       // Recorded only when set: absent reads as a production audit, which is

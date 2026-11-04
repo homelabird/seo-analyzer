@@ -1,3 +1,5 @@
+import { NetworkPolicyError } from './network.js';
+import { createBrowserProxy } from './browser-proxy.js';
 import { readFileSync } from 'node:fs';
 import { createRequire } from 'node:module';
 import { dirname, join } from 'node:path';
@@ -54,8 +56,9 @@ export async function initBrowser(): Promise<Browser> {
 async function launchBrowser(): Promise<Browser> {
   return (async () => {
       const baseArgs = [
-        '--no-sandbox',
-        '--disable-setuid-sandbox',
+        '--proxy-bypass-list=<-loopback>',
+        '--force-webrtc-ip-handling-policy=disable_non_proxied_udp',
+        '--disable-quic',
         '--disable-dev-shm-usage',
         '--disable-accelerated-2d-canvas',
         '--disable-gpu',
@@ -68,6 +71,7 @@ async function launchBrowser(): Promise<Browser> {
           return await tryLaunch({
             channel,
             headless: true,
+            chromiumSandbox: true,
             args: baseArgs,
           });
         } catch {
@@ -78,6 +82,7 @@ async function launchBrowser(): Promise<Browser> {
       // Fall back to Playwright's bundled Chromium
       return await tryLaunch({
         headless: true,
+        chromiumSandbox: true,
         args: baseArgs,
       });
     })();
@@ -105,6 +110,7 @@ export async function closeBrowser(): Promise<void> {
  * Result of fetching a page with Playwright
  */
 export interface PlaywrightFetchResult {
+  httpProtocol?: string;
   /** Raw HTML content after JS execution */
   html: string;
   /** HTTP status code */
@@ -336,6 +342,8 @@ export function collectAssets(page: Page): AssetInfo[] {
 
 /** Options controlling how a page is rendered */
 export interface RenderOptions {
+  /** Explicit permission for private-network targets. */
+  allowPrivate?: boolean;
   /**
    * Render at a mobile viewport with a mobile User-Agent instead of desktop.
    * Used for mobile-first parity: comparing what a phone sees against desktop.
@@ -497,12 +505,21 @@ export async function fetchPageWithPlaywright(
   throwIfAborted(options.signal);
   // A context, not a bare page, so the render identifies itself with the same
   // User-Agent as the HTTP crawler instead of the default headless Chrome one.
-  const context = await browser.newContext(
-    options.mobile
-      ? { userAgent: MOBILE_USER_AGENT, ...MOBILE_CONTEXT }
-      : { userAgent: getUserAgent() }
-  );
-  const page = await context.newPage();
+  const target = new URL(url);
+  const httpCredentials = target.username || target.password ? { username: decodeURIComponent(target.username), password: decodeURIComponent(target.password), origin: target.origin } : undefined;
+  target.username = ''; target.password = '';
+  const proxy = await createBrowserProxy(options.allowPrivate);
+  let context;
+  try {
+    context = await browser.newContext({
+      ...(options.mobile ? { userAgent: MOBILE_USER_AGENT, ...MOBILE_CONTEXT } : { userAgent: getUserAgent() }),
+      proxy: { server: proxy.url, bypass: '<-loopback>' },
+      ...(httpCredentials && { httpCredentials }),
+      serviceWorkers: 'block',
+      acceptDownloads: false,
+    });
+  } catch (error) { await proxy.close(); throw error; }
+  const page = await context.newPage().catch(async (error) => { await context.close().catch(() => {}); await proxy.close(); throw error; });
   // Closing the page is what makes a pending goto/evaluate reject, so a
   // cancelled run stops mid-render instead of after the timeout.
   const onAbort = (): void => {
@@ -514,13 +531,12 @@ export async function fetchPageWithPlaywright(
   // Same timing constraint: subresource responses fire during load.
   const assets = collectAssets(page);
   // Likewise the metric collectors: LCP and layout shifts happen during load.
-  await injectWebVitals(page);
-
   try {
+    await injectWebVitals(page);
     const startTime = performance.now();
 
     // Navigate and wait for load
-    const response = await page.goto(url, {
+    const response = await page.goto(target.href, {
       waitUntil: 'load',
       timeout,
     });
@@ -532,6 +548,8 @@ export async function fetchPageWithPlaywright(
     // early is captured early, while one that never goes quiet (polling,
     // beacons, websockets) costs the same flat wait it always did.
     await page.waitForLoadState('networkidle', { timeout: SETTLE_TIMEOUT_MS }).catch(() => {});
+
+    if (proxy.blockedCount() > 0) throw new NetworkPolicyError('browser subresources');
 
     // Get HTML content after JS execution
     const html = await page.content();
@@ -549,6 +567,7 @@ export async function fetchPageWithPlaywright(
 
     return {
       html,
+      httpProtocol: await page.evaluate(() => (performance.getEntriesByType('navigation')[0] as PerformanceNavigationTiming | undefined)?.nextHopProtocol),
       statusCode: response?.status() ?? 0,
       responseTime: Math.round(loadTime),
       cwv,
@@ -562,6 +581,7 @@ export async function fetchPageWithPlaywright(
     options.signal?.removeEventListener('abort', onAbort);
     await page.close().catch(() => {});
     await context.close().catch(() => {});
+    await proxy.close();
   }
 }
 

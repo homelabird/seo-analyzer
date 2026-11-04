@@ -1,3 +1,6 @@
+import { randomUUID } from 'node:crypto';
+import { NetworkPolicyError } from '@core/crawler/network.js';
+import { createBrowserProxy } from '@core/crawler/browser-proxy.js';
 /**
  * Electron BrowserWindow-based page fetcher.
  *
@@ -7,6 +10,7 @@
  */
 
 import { BrowserWindow, session } from 'electron';
+import type { RenderOptions } from '@core/crawler/playwright-fetcher.js';
 import type { PlaywrightFetchResult } from '@core/crawler/index.js';
 import type { CoreWebVitals } from '@core/types.js';
 
@@ -17,9 +21,19 @@ import type { CoreWebVitals } from '@core/types.js';
 export async function fetchPageWithBrowserWindow(
   url: string,
   timeout = 30000,
+  options: RenderOptions = {},
 ): Promise<PlaywrightFetchResult> {
+  const target = new URL(url);
+  const username = decodeURIComponent(target.username), password = decodeURIComponent(target.password);
+  target.username = ''; target.password = '';
   // Dedicated session so interceptors don't affect the main window
-  const ses = session.fromPartition(`cwv-fetch-${Date.now()}`);
+  const ses = session.fromPartition(`cwv-fetch-${randomUUID()}`);
+
+  const proxy = await createBrowserProxy(options.allowPrivate);
+  try {
+    await ses.setProxy({ mode: 'fixed_servers', proxyRules: proxy.url, proxyBypassRules: '<-loopback>' });
+  } catch (error) { await proxy.close(); throw error; }
+  ses.setPermissionRequestHandler((_contents, _permission, callback) => callback(false));
 
   // Capture the status code from the main-frame navigation response
   let statusCode = 0;
@@ -46,17 +60,30 @@ export async function fetchPageWithBrowserWindow(
     },
   });
 
+  win.webContents.on('login', (event, _details, authInfo, callback) => {
+    event.preventDefault();
+    if ((username || password) && !authInfo.isProxy && authInfo.host.replace(/^\[|\]$/g, '') === target.hostname.replace(/^\[|\]$/g, '') && authInfo.port === Number(target.port || (target.protocol === 'https:' ? 443 : 80))) callback(username, password);
+    else callback();
+  });
+  win.webContents.setWindowOpenHandler(() => ({ action: 'deny' }));
+  ses.on('will-download', (event) => event.preventDefault());
+  win.webContents.setWebRTCIPHandlingPolicy('disable_non_proxied_udp');
+  const onAbort = () => { if (!win.isDestroyed()) win.destroy(); };
+  options.signal?.addEventListener('abort', onAbort, { once: true });
+  const timer = setTimeout(onAbort, timeout);
   try {
+    options.signal?.throwIfAborted();
     const startTime = performance.now();
 
     // Navigate to the URL
-    await win.loadURL(url);
+    await win.loadURL(target.href);
 
     const loadTime = performance.now() - startTime;
 
     // Wait for dynamic content (mirrors Playwright fetcher's 1s wait)
     await new Promise((resolve) => setTimeout(resolve, 1000));
 
+    if (proxy.blockedCount() > 0) throw new NetworkPolicyError('browser subresources');
     // Get rendered HTML
     const html = await win.webContents.executeJavaScript(
       'document.documentElement.outerHTML',
@@ -67,12 +94,17 @@ export async function fetchPageWithBrowserWindow(
 
     return {
       html,
+      httpProtocol: await win.webContents.executeJavaScript("performance.getEntriesByType('navigation')[0]?.nextHopProtocol"),
       statusCode,
       responseTime: Math.round(loadTime),
       cwv,
     };
   } finally {
-    win.destroy();
+    clearTimeout(timer);
+    options.signal?.removeEventListener('abort', onAbort);
+    if (!win.isDestroyed()) win.destroy();
+    await ses.closeAllConnections();
+    await proxy.close();
   }
 }
 

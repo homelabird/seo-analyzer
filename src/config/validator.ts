@@ -262,6 +262,7 @@ export function validateConfig(config: PartialSeomatorConfig | SeomatorConfig): 
   // Validate boolean fields
   const booleanPaths = [
     'crawler.respect_robots',
+    'crawler.allow_private',
     'crawler.breadth_first',
     'crawler.follow_redirects',
     'external_links.enabled',
@@ -366,14 +367,13 @@ export function validateConfig(config: PartialSeomatorConfig | SeomatorConfig): 
  * and left listed here, or added to the schema and never listed.
  */
 const UNHONOURED_KEYS: Array<{ path: string; effect: string }> = [
-  { path: 'crawler.per_host_concurrency', effect: 'concurrency is global, not per host' },
   { path: 'crawler.breadth_first', effect: 'the queue is always breadth-first' },
   { path: 'crawler.follow_redirects', effect: 'redirects are always followed, up to the hop limit' },
   { path: 'crawler.max_prefix_budget', effect: 'no prefix budget is applied' },
-  { path: 'external_links.enabled', effect: 'no external link is ever requested' },
-  { path: 'external_links.cache_ttl_days', effect: 'the link cache is never opened' },
-  { path: 'external_links.timeout_ms', effect: 'no external link is ever requested' },
-  { path: 'external_links.concurrency', effect: 'no external link is ever requested' },
+  { path: 'external_links.enabled', effect: 'external target checks still run' },
+  { path: 'external_links.cache_ttl_days', effect: 'only run-scoped probes are cached; no cross-audit TTL cache is used' },
+  { path: 'external_links.timeout_ms', effect: 'external target probes use a 10000 ms timeout' },
+  { path: 'external_links.concurrency', effect: 'the shared global/per-host scheduler controls target probes' },
   { path: 'rule_options', effect: 'rules do not receive per-rule options' },
 ];
 

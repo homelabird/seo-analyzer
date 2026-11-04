@@ -11,6 +11,9 @@ import { join } from 'path';
 import { registerAuditHandlers } from './audit-bridge.js';
 import { registerDbHandlers } from './db-bridge.js';
 
+// Audited pages must keep all network traffic on the checked HTTP proxy.
+app.commandLine.appendSwitch('disable-quic');
+
 let mainWindow: BrowserWindow | null = null;
 
 /**

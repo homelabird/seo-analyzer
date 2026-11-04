@@ -1,3 +1,4 @@
+import { safeFetch, readResponseBytes } from './network.js';
 import { gunzipSync } from 'node:zlib';
 import { getUserAgent } from './user-agent.js';
 import { rethrowIfAborted, throwIfAborted } from '../errors.js';
@@ -36,16 +37,16 @@ async function fetchSitemapDocument(url: string, signal?: AbortSignal): Promise<
   const controller = new AbortController();
   const timeoutId = setTimeout(() => controller.abort(), FETCH_TIMEOUT_MS);
   try {
-    const response = await fetch(url, {
+    const response = await safeFetch(url, {
       signal: signal ? AbortSignal.any([signal, controller.signal]) : controller.signal,
       headers: { 'User-Agent': getUserAgent() },
     });
     if (!response.ok) return null;
 
-    const bytes = new Uint8Array(await response.arrayBuffer());
+    const bytes = await readResponseBytes(response, 50 * 1024 * 1024);
     if (isGzip(bytes)) {
       try {
-        return gunzipSync(bytes).toString('utf8');
+        return gunzipSync(bytes, { maxOutputLength: 50 * 1024 * 1024 }).toString('utf8');
       } catch {
         return null;
       }
@@ -263,6 +264,7 @@ export async function fetchSitemap(
 
   return {
     ...(rootContent !== undefined && { content: rootContent }),
+    ...(entries.length >= MAX_URLS && { truncated: true }),
     urls: capped.map((entry) => entry.loc),
     entries: capped,
     sources,

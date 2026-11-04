@@ -1,3 +1,4 @@
+import { safeFetch, memoizeProbe, readResponseBytes, currentNetworkSession } from './network.js';
 import * as cheerio from 'cheerio';
 import { getUserAgent } from './user-agent.js';
 import { AuditError, rethrowIfAborted, throwIfAborted } from '../errors.js';
@@ -24,6 +25,7 @@ export interface FetchResult {
   /** Requested address and final document address after redirects. */
   requestedUrl?: string;
   finalUrl?: string;
+  tls?: { validTo?: string; protocol?: string };
   /** Raw HTML content */
   html: string;
   /** Cheerio instance for DOM querying */
@@ -163,12 +165,15 @@ async function fetchFollowingRedirects(
   const chain: RedirectChainEntry[] = [];
   const seen = new Set<string>();
   let currentUrl = url;
+  const headers = new Headers(pageRequestHeaders());
+  const credentials = new URL(url);
+  if (credentials.username || credentials.password) headers.set('authorization', `Basic ${Buffer.from(`${decodeURIComponent(credentials.username)}:${decodeURIComponent(credentials.password)}`).toString('base64')}`);
 
   for (let hop = 0; hop <= MAX_TRACKED_REDIRECTS; hop++) {
-    const response = await fetch(currentUrl, {
+    const response = await safeFetch(currentUrl, {
       method: 'GET',
       signal,
-      headers: pageRequestHeaders(),
+      headers: Object.fromEntries(headers),
       redirect: 'manual',
     });
 
@@ -180,7 +185,9 @@ async function fetchFollowingRedirects(
         : null;
     if (!location) return { response, chain };
 
+    await response.body?.cancel();
     const nextUrl = new URL(location, currentUrl).href;
+    if (new URL(nextUrl).origin !== new URL(currentUrl).origin) headers.delete('authorization');
     if (seen.has(nextUrl)) {
       // A looping URL has no page to audit, and the 3xx body it would hand
       // back reads as "empty response" — which hides the actual cause. Name
@@ -214,7 +221,7 @@ export async function fetchPage(
       response = tracked.response;
       redirectChain = tracked.chain;
     } else {
-      response = await fetch(url, {
+      response = await safeFetch(url, {
         method: 'GET',
         signal: request.signal,
         headers: pageRequestHeaders(),
@@ -223,7 +230,7 @@ export async function fetchPage(
     }
 
     const responseTime = performance.now() - startTime;
-    const html = await response.text();
+    const html = new TextDecoder().decode(await readResponseBytes(response));
 
     const $ = cheerio.load(html);
 
@@ -233,14 +240,24 @@ export async function fetchPage(
       headers[key.toLowerCase()] = value;
     });
 
+    const finalUrl = redirectChain?.at(-1)?.url ?? (response.url || url);
+    const network = currentNetworkSession();
+    if (network && network.pages.size < 10_000) {
+      const chain = redirectChain?.map((hop) => hop.url) ?? (url === finalUrl ? [url] : [url, finalUrl]);
+      const requestedKey = new URL(url); requestedKey.hash = '';
+      network.pages.set(requestedKey.href, { finalUrl, statusCode: response.status, redirectCount: chain.length - 1, chain });
+      network.pages.set(finalUrl, { finalUrl, statusCode: response.status, redirectCount: 0, chain: [finalUrl] });
+    }
+
     return {
       html,
       $,
       requestedUrl: url,
-      finalUrl: redirectChain?.at(-1)?.url ?? (response.url || url),
+      finalUrl,
       headers,
       statusCode: response.status,
       responseTime: Math.round(responseTime),
+      tls: currentNetworkSession()?.tls.get(new URL(response.url || url).origin),
       cookies: parseSetCookieHeaders(response.headers),
       ...(redirectChain && { redirectChain }),
     };
@@ -272,41 +289,7 @@ export async function fetchPage(
  * @returns HTTP status code, or 0 for a timeout or network error
  */
 export async function fetchUrl(url: string, timeout = 10000, signal?: AbortSignal): Promise<number> {
-  const headStatus = await requestStatus(url, 'HEAD', timeout, signal);
-  if (headStatus !== 0 && headStatus < 400) return headStatus;
-
-  const getStatus = await requestStatus(url, 'GET', timeout, signal);
-  return getStatus === 0 ? headStatus : getStatus;
-}
-
-/** One status request; GET bodies are discarded unread. */
-async function requestStatus(
-  url: string,
-  method: 'HEAD' | 'GET',
-  timeout: number,
-  signal?: AbortSignal
-): Promise<number> {
-  throwIfAborted(signal);
-  const request = requestSignal(timeout, signal);
-
-  try {
-    const response = await fetch(url, {
-      method,
-      signal: request.signal,
-      headers: {
-        'User-Agent': getUserAgent(),
-      },
-      redirect: 'follow',
-    });
-    await response.body?.cancel().catch(() => {});
-
-    return response.status;
-  } catch (error) {
-    rethrowIfAborted(error, signal);
-    return 0; // Timeout or network error
-  } finally {
-    request.dispose();
-  }
+  return (await fetchUrlWithRedirects(url, timeout, 20, signal)).statusCode;
 }
 
 /**
@@ -612,69 +595,45 @@ export interface RedirectResult {
 export async function fetchUrlWithRedirects(
   url: string,
   timeout = 10000,
-  maxRedirects = 5,
+  maxRedirects = 20,
   signal?: AbortSignal
 ): Promise<RedirectResult> {
-  const chain: string[] = [url];
-  let currentUrl = url;
-  let redirectCount = 0;
-
-  while (redirectCount < maxRedirects) {
-    throwIfAborted(signal);
-    const request = requestSignal(timeout, signal);
-
-    try {
-      const response = await fetch(currentUrl, {
-        method: 'HEAD',
-        signal: request.signal,
-        headers: {
-          'User-Agent': getUserAgent(),
-        },
-        redirect: 'manual', // Don't auto-follow redirects
-      });
-
-      request.dispose();
-
-      // Check for redirect status codes
-      if (response.status >= 300 && response.status < 400) {
-        const location = response.headers.get('location');
-        if (location) {
-          // Resolve relative redirect URLs
-          const nextUrl = new URL(location, currentUrl).href;
-          chain.push(nextUrl);
-          currentUrl = nextUrl;
-          redirectCount++;
-          continue;
+  const normalized = new URL(url);
+  normalized.hash = '';
+  const known = currentNetworkSession()?.pages.get(normalized.href);
+  if (known && known.redirectCount <= maxRedirects) return known;
+  // All callers use the same redirect budget so status and redirect rules share a probe.
+  const key = JSON.stringify([normalized.href, timeout, getUserAgent(), maxRedirects]);
+  return memoizeProbe(key, signal, async () => {
+    const attempt = async (method: 'HEAD' | 'GET'): Promise<RedirectResult> => {
+      const chain = [normalized.href];
+      let currentUrl = normalized.href;
+      const request = requestSignal(timeout, signal);
+      try {
+        for (let hop = 0; hop <= maxRedirects; hop++) {
+          const response = await safeFetch(currentUrl, {
+            method, signal: request.signal, headers: { 'User-Agent': getUserAgent() }, redirect: 'manual',
+          });
+          const location = [301, 302, 303, 307, 308].includes(response.status) ? response.headers.get('location') : null;
+          await response.body?.cancel();
+          if (!location) return { finalUrl: currentUrl, statusCode: response.status, redirectCount: chain.length - 1, chain };
+          const next = new URL(location, currentUrl).href;
+          if (chain.includes(next) || hop === maxRedirects) break;
+          chain.push(next);
+          currentUrl = next;
         }
-      }
-
-      // Not a redirect or no location header
-      return {
-        finalUrl: currentUrl,
-        statusCode: response.status,
-        redirectCount,
-        chain,
-      };
-    } catch (error) {
-      request.dispose();
-      rethrowIfAborted(error, signal);
-      // Return current state on error
-      return {
-        finalUrl: currentUrl,
-        statusCode: 0, // Network error
-        redirectCount,
-        chain,
-      };
-    }
-  }
-
-  // Max redirects reached
-  return {
-    finalUrl: currentUrl,
-    statusCode: 0, // Treat as error
-    redirectCount,
-    chain,
-  };
+        return { finalUrl: currentUrl, statusCode: 0, redirectCount: chain.length - 1, chain };
+      } catch (error) {
+        rethrowIfAborted(error, signal);
+        return { finalUrl: currentUrl, statusCode: 0, redirectCount: chain.length - 1, chain };
+      } finally { request.dispose(); }
+    };
+    const head = await attempt('HEAD');
+    if (head.statusCode > 0 && head.statusCode < 400) return head;
+    const get = await attempt('GET');
+    // A failed confirmation cannot certify a stale HEAD error as a broken link.
+    return get;
+  });
 }
 
 /**
@@ -712,6 +671,7 @@ export function createAuditContext(
     statusCode,
     responseTime,
     cwv,
+    ...(fetchResult.tls && { tls: fetchResult.tls }),
     links,
     images: extractImages($, documentBaseUrl),
     invalidLinks,

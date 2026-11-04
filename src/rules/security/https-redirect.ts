@@ -1,3 +1,4 @@
+import { safeFetch } from '../../crawler/network.js';
 import type { AuditContext } from '../../types.js';
 import { defineRule, pass, warn, fail } from '../define-rule.js';
 import { getUserAgent } from '../../crawler/user-agent.js';
@@ -16,7 +17,7 @@ async function checkRedirect(
   const request = requestSignal(timeout, signal);
 
   try {
-    const response = await fetch(url, {
+    const response = await safeFetch(url, {
       method: 'HEAD',
       signal: request.signal,
       headers: {
