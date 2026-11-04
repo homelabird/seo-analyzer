@@ -75,7 +75,7 @@
   },
   "homepage": "https://github.com/seo-skills/seo-audit-skill#readme",
   "engines": {
-    "node": ">=20.3.0"
+    "node": ">=20.18.1"
   },
   "dependencies": {
     "@iarna/toml": "^2.2.5",
@@ -88,6 +88,7 @@
     "log-update": "^6.1.0",
     "ora": "^8.1.1",
     "playwright": "^1.49.1",
+    "undici": "^7.19.0",
     "web-vitals": "^4.2.4"
   },
   "devDependencies": {
@@ -110,6 +111,7 @@
     "tailwindcss": "^4.1.18",
     "tsup": "^8.3.5",
     "typescript": "^5.7.2",
+    "vite": "^7.3.7",
     "vitest": "^2.1.8",
     "zustand": "^5.0.11"
   }
