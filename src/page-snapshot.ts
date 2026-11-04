@@ -30,6 +30,12 @@ function clean(text: string | undefined, limit = 300): string | undefined {
 export function buildPageSnapshot(context: AuditContext): PageSnapshot {
   const { $, html, links, images } = context;
 
+  const absolute = (value: string | undefined): string | undefined => {
+    if (!value) return undefined;
+    try { const url = new URL(value, context.documentBaseUrl ?? context.url); return ['http:', 'https:'].includes(url.protocol) ? url.href : undefined; }
+    catch { return undefined; }
+  };
+
   const meta = (name: string): string | undefined =>
     clean($(`meta[name="${name}"]`).attr('content'));
   const property = (name: string): string | undefined =>
@@ -52,11 +58,11 @@ export function buildPageSnapshot(context: AuditContext): PageSnapshot {
   return {
     title: clean($(DOCUMENT_TITLE).first().text()),
     description: meta('description'),
-    canonical: clean($('link[rel="canonical"]').attr('href')),
+    canonical: absolute(clean($('link[rel="canonical"]').attr('href'))),
     og: {
       title: property('og:title'),
       description: property('og:description'),
-      image: property('og:image'),
+      image: absolute(property('og:image')),
       siteName: property('og:site_name'),
       type: property('og:type'),
     },

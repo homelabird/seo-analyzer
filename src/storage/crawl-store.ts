@@ -1,3 +1,4 @@
+import { sanitizeForOutput, sanitizeText } from '../sanitize.js';
 import * as fs from 'fs';
 import * as path from 'path';
 import type { PartialSeomatorConfig } from '../config/schema.js';
@@ -8,6 +9,7 @@ import { getCrawlsDir, generateId } from './paths.js';
  * Stored page data from a crawl
  */
 export interface StoredPage {
+  finalUrl?: string;
   url: string;
   status: number;
   html: string;
@@ -62,7 +64,8 @@ function ensureCrawlsDir(baseDir: string): string {
 export function saveCrawl(baseDir: string, crawl: StoredCrawl): string {
   const crawlsDir = ensureCrawlsDir(baseDir);
   const filePath = path.join(crawlsDir, `${crawl.id}.json`);
-  fs.writeFileSync(filePath, JSON.stringify(crawl, null, 2), 'utf-8');
+  const safe = { ...sanitizeForOutput({ ...crawl, pages: [] }), pages: crawl.pages.map((page) => ({ ...page, url: sanitizeText(page.url), ...(page.finalUrl && { finalUrl: sanitizeText(page.finalUrl) }), headers: sanitizeForOutput(page.headers) })) };
+  fs.writeFileSync(filePath, JSON.stringify(safe, null, 2), 'utf-8');
   return crawl.id;
 }
 

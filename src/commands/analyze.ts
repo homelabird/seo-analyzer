@@ -55,6 +55,7 @@ function createContextFromStoredPage(page: StoredPage): AuditContext {
     page.url,
     {
       html: page.html,
+      finalUrl: page.finalUrl,
       $,
       headers: page.headers,
       statusCode: page.status,

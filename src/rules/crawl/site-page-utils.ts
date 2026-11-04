@@ -30,7 +30,7 @@ export function resolveCanonical(context: AuditContext): string | null | undefin
   const href = context.$('link[rel="canonical"]').attr('href');
   if (!href) return undefined;
   try {
-    return new URL(href, context.url).href;
+    return new URL(href, context.documentBaseUrl ?? context.url).href;
   } catch {
     return null;
   }
@@ -52,7 +52,7 @@ export function resolveHreflangOut(context: AuditContext): Record<string, string
     const href = context.$(el).attr('href');
     if (!code || !href) return;
     try {
-      out[code.toLowerCase()] = new URL(href, context.url).href;
+      out[code.toLowerCase()] = new URL(href, context.documentBaseUrl ?? context.url).href;
     } catch {
       // Unresolvable target - other rules report invalid hreflang URLs.
     }

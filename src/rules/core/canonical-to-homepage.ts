@@ -63,7 +63,7 @@ export const canonicalToHomepageRule = defineRule({
     }
 
     // Resolve canonical to absolute URL
-    const canonicalUrl = resolveCanonical(canonicalHref, url);
+    const canonicalUrl = resolveCanonical(canonicalHref, context.documentBaseUrl ?? url);
     if (!canonicalUrl) {
       return pass(
         'core-canonical-to-homepage',

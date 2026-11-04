@@ -77,7 +77,7 @@ export const hreflangToRedirectRule = defineRule({
       for (const { hreflang, href } of annotations) {
         let absolute: string;
         try {
-          absolute = new URL(href, url).href;
+          absolute = new URL(href, context.documentBaseUrl ?? url).href;
         } catch {
           continue; // unresolvable target - broken-URL rules cover this
         }

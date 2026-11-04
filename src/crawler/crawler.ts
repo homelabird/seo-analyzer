@@ -142,6 +142,7 @@ export class Crawler {
   private discoverySourceByUrl: Map<string, Set<DiscoverySource>> = new Map();
   /** Normalised entry URL, the root of the depth measurement */
   private entryUrl = '';
+  private redirectAliases = new Map<string, string>();
   private hostname: string = '';
   private options: CrawlerOptions;
   private results: CrawledPage[] = [];
@@ -217,6 +218,7 @@ export class Crawler {
   ): Promise<CrawledPage[]> {
     // Reset state
     this.visited.clear();
+    this.redirectAliases.clear();
     this.queue = [];
     this.depthByUrl.clear();
     this.discoverySourceByUrl.clear();
@@ -371,6 +373,14 @@ export class Crawler {
 
       // Create audit context
       const context = createAuditContext(url, fetchResult, cwv);
+      const identity = this.normalizeUrl(context.url);
+      const requested = this.normalizeUrl(url);
+      if (identity !== requested) {
+        this.redirectAliases.set(requested, identity);
+        for (const hop of fetchResult.redirectChain ?? []) this.redirectAliases.set(this.normalizeUrl(hop.url), identity);
+        this.depthByUrl.set(identity, Math.min(this.depthByUrl.get(identity) ?? Infinity, this.depthByUrl.get(requested) ?? 0));
+        this.visited.add(identity);
+      }
       if (this.options.signal) {
         context.signal = this.options.signal;
       }
@@ -409,6 +419,7 @@ export class Crawler {
    * @returns The graph, shared by reference across every page's context
    */
   buildSiteContext(): SiteContext {
+    const keyOf = (url: string) => { const normalized = this.normalizeUrl(url); return this.redirectAliases.get(normalized) ?? normalized; };
     const inboundLinksByUrl = new Map<string, Set<string>>();
     const outboundLinksByUrl = new Map<string, Set<string>>();
     const inboundEdgesByUrl = new Map<string, InboundEdge[]>();
@@ -416,7 +427,7 @@ export class Crawler {
     let pageCount = 0;
 
     for (const page of this.results) {
-      const from = this.normalizeUrl(page.url);
+      const from = keyOf(page.context.url);
       // Recorded for every result, including failed fetches (statusCode 0):
       // sitemap cross-reference rules need to see those too. Cheap primitives
       // only — no HTML is retained.
@@ -430,7 +441,7 @@ export class Crawler {
       for (const link of page.context.links) {
         if (!link.isInternal) continue;
 
-        const to = this.normalizeUrl(link.href);
+        const to = keyOf(link.href);
         if (to === from) continue;
         if (!this.isSameDomain(to)) continue;
 
@@ -458,16 +469,22 @@ export class Crawler {
       outboundLinksByUrl.set(from, targets);
     }
 
+    const discoverySourceByUrl = new Map<string, Set<DiscoverySource>>();
+    for (const [url, sources] of this.discoverySourceByUrl) {
+      const key = keyOf(url), merged = discoverySourceByUrl.get(key) ?? new Set<DiscoverySource>();
+      for (const source of sources) merged.add(source);
+      discoverySourceByUrl.set(key, merged);
+    }
     return {
-      entryUrl: this.entryUrl,
+      entryUrl: keyOf(this.entryUrl),
       pageCount,
       depthByUrl: this.depthByUrl,
       inboundLinksByUrl,
       outboundLinksByUrl,
       pages,
-      discoverySourceByUrl: this.discoverySourceByUrl,
+      discoverySourceByUrl,
       inboundEdgesByUrl,
-      normalize: (url: string) => this.normalizeUrl(url),
+      normalize: keyOf,
     };
   }
 
@@ -494,7 +511,7 @@ export class Crawler {
     const canonicalHref = $('link[rel="canonical"]').first().attr('href');
     if (canonicalHref !== undefined) {
       try {
-        info.canonical = new URL(canonicalHref, page.url).href;
+        info.canonical = new URL(canonicalHref, page.context.documentBaseUrl ?? page.context.url).href;
       } catch {
         info.canonical = null;
       }
@@ -516,7 +533,7 @@ export class Crawler {
       const href = $(el).attr('href');
       if (!code || !href) return;
       try {
-        info.hreflangOut[code] = new URL(href, page.url).href;
+        info.hreflangOut[code] = new URL(href, page.context.documentBaseUrl ?? page.context.url).href;
       } catch {
         // An unresolvable hreflang target is a per-page finding, not recorded here.
       }
@@ -614,7 +631,7 @@ export class Crawler {
     const canonicalHref = context.$('link[rel="canonical"]').first().attr('href');
     if (canonicalHref !== undefined) {
       try {
-        const canonicalUrl = new URL(canonicalHref, context.url).href;
+        const canonicalUrl = new URL(canonicalHref, context.documentBaseUrl ?? context.url).href;
         if (this.isHttpSameDomain(canonicalUrl) && !this.isNonHtmlResource(canonicalUrl)) {
           const normalizedCanonical = this.normalizeUrl(canonicalUrl);
           this.recordDiscoverySource(normalizedCanonical, 'canonical');

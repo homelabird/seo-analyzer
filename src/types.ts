@@ -491,6 +491,10 @@ export interface SchemaNodeSummary {
  * Context passed to each audit rule's run function
  */
 export interface AuditContext {
+  /** Original navigation address, before redirects. */
+  requestedUrl?: string;
+  /** Final document URL, overridden by the first valid HTML base href. */
+  documentBaseUrl?: string;
   /** The URL being audited */
   url: string;
   /** Raw HTML content of the page */

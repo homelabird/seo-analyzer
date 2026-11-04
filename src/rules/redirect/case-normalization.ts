@@ -40,7 +40,7 @@ export const caseNormalizationRule = defineRule({
 
     try {
       normalizedUrl = new URL(url).href;
-      normalizedCanonical = new URL(canonicalHref, url).href;
+      normalizedCanonical = new URL(canonicalHref, context.documentBaseUrl ?? url).href;
     } catch {
       return pass('redirect-case-normalization', 'Could not parse URLs for comparison');
     }

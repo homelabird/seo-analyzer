@@ -117,7 +117,7 @@ export const blockedResourcesRule = defineRule({
     for (const src of scriptSources) {
       try {
         // Resolve relative URLs against the page URL
-        const scriptUrl = new URL(src, context.url);
+        const scriptUrl = new URL(src, context.documentBaseUrl ?? context.url);
 
         // Only check scripts on the same domain
         if (scriptUrl.hostname !== pageUrl.hostname) continue;

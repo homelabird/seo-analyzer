@@ -52,7 +52,7 @@ export const paginationLoopRule = defineRule({
 
     if (nextHref) {
       try {
-        const resolvedNext = new URL(nextHref, url).href;
+        const resolvedNext = new URL(nextHref, context.documentBaseUrl ?? url).href;
         if (normalizeUrl(resolvedNext) === normalizedCurrentUrl) {
           loops.push({ rel: 'next', href: nextHref });
         }
@@ -63,7 +63,7 @@ export const paginationLoopRule = defineRule({
 
     if (prevHref) {
       try {
-        const resolvedPrev = new URL(prevHref, url).href;
+        const resolvedPrev = new URL(prevHref, context.documentBaseUrl ?? url).href;
         if (normalizeUrl(resolvedPrev) === normalizedCurrentUrl) {
           loops.push({ rel: 'prev', href: prevHref });
         }

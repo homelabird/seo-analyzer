@@ -178,7 +178,7 @@ export const hreflangRule = defineRule({
 
       // Check for self-reference
       try {
-        const hrefUrl = new URL(href, url);
+        const hrefUrl = new URL(href, context.documentBaseUrl ?? url);
         const currentUrl = new URL(url);
         if (hrefUrl.pathname === currentUrl.pathname && hrefUrl.host === currentUrl.host) {
           hasSelfReference = true;

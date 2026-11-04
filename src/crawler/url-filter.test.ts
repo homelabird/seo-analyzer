@@ -169,11 +169,11 @@ describe('UrlFilter', () => {
         .toBe('https://example.com/page?a=1&b=2&c=3');
     });
 
-    it('should remove trailing slash except for root', () => {
+    it('preserves trailing slash because it changes document identity', () => {
       const filter = new UrlFilter();
 
       expect(filter.normalizeUrl('https://example.com/page/'))
-        .toBe('https://example.com/page');
+        .toBe('https://example.com/page/');
 
       expect(filter.normalizeUrl('https://example.com/'))
         .toBe('https://example.com/');

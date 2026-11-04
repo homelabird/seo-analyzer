@@ -57,7 +57,7 @@ export const paginationSequenceRule = defineRule({
     let resolvedPrev: string;
 
     try {
-      resolvedNext = new URL(nextHref, url).href;
+      resolvedNext = new URL(nextHref, context.documentBaseUrl ?? url).href;
     } catch {
       // Invalid URL handled by pagination-broken rule
       return pass(
@@ -68,7 +68,7 @@ export const paginationSequenceRule = defineRule({
     }
 
     try {
-      resolvedPrev = new URL(prevHref, url).href;
+      resolvedPrev = new URL(prevHref, context.documentBaseUrl ?? url).href;
     } catch {
       // Invalid URL handled by pagination-broken rule
       return pass(

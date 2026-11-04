@@ -50,7 +50,7 @@ export const externalLinksSecurityRule = defineRule({
 
       // Check if external
       try {
-        const linkHost = new URL(href, url).hostname;
+        const linkHost = new URL(href, context.documentBaseUrl ?? url).hostname;
         if (linkHost === pageHost) return; // Internal link
       } catch {
         return; // Invalid URL, skip

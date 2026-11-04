@@ -33,7 +33,7 @@ export const hreflangXDefaultRule = defineRule({
 
     const normalize = (href: string): string => {
       try {
-        return new URL(href, url).href;
+        return new URL(href, context.documentBaseUrl ?? url).href;
       } catch {
         return href;
       }

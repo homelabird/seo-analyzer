@@ -32,7 +32,7 @@ export const canonicalHttpMismatchRule = defineRule({
     // Resolve canonical to absolute URL
     let canonicalUrl: URL;
     try {
-      canonicalUrl = new URL(canonicalHref, url);
+      canonicalUrl = new URL(canonicalHref, context.documentBaseUrl ?? url);
     } catch {
       return pass(
         'core-canonical-http-mismatch',

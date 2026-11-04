@@ -143,15 +143,8 @@ export class UrlFilter {
       // Sort remaining params for consistent normalization
       urlObj.searchParams.sort();
 
-      // Get normalized href
-      let normalized = urlObj.href;
-
-      // Remove trailing slash (except for root)
-      if (normalized.endsWith('/') && urlObj.pathname !== '/') {
-        normalized = normalized.slice(0, -1);
-      }
-
-      return normalized;
+      // A trailing slash can identify a different document and changes relative URLs.
+      return urlObj.href;
     } catch {
       return url;
     }

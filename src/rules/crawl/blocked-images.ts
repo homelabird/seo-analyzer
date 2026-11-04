@@ -54,7 +54,7 @@ export const blockedImagesRule = defineRule({
 
       let absolute: string;
       try {
-        const resolved = new URL(image.src, context.url);
+        const resolved = new URL(image.src, context.documentBaseUrl ?? context.url);
         // Only the site's own robots.txt governs its images.
         if (resolved.origin !== pageOrigin) continue;
         absolute = resolved.href;

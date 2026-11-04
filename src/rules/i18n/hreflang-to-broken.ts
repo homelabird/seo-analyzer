@@ -65,7 +65,7 @@ export const hreflangToBrokenRule = defineRule({
 
       // Attempt to parse as absolute URL, then with base
       try {
-        const parsed = new URL(trimmedHref, url);
+        const parsed = new URL(trimmedHref, context.documentBaseUrl ?? url);
         // Verify it resolved to an HTTP(S) URL
         if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') {
           brokenUrls.push({

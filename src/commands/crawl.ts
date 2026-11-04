@@ -62,6 +62,7 @@ export async function runCrawl(url: string, options: CrawlOptions): Promise<void
       process.stderr.write('\n');
     }
 
+    const site = crawler.buildSiteContext();
     // Convert to stored pages
     for (const page of crawledPages) {
       if (page.error) {
@@ -71,10 +72,11 @@ export async function runCrawl(url: string, options: CrawlOptions): Promise<void
 
       const storedPage: StoredPage = {
         url: page.url,
+        finalUrl: page.context.url,
         status: page.context.statusCode,
         html: page.context.html,
         headers: page.context.headers,
-        depth: 0, // TODO: Track depth in crawler
+        depth: site.depthByUrl.get(site.normalize(page.url)) ?? 0,
         loadTime: page.context.responseTime,
         cwv: page.context.cwv,
       };

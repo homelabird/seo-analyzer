@@ -33,7 +33,7 @@ export const canonicalExternalRule = defineRule({
     let canonical: URL;
     let page: URL;
     try {
-      canonical = new URL(href, url);
+      canonical = new URL(href, context.documentBaseUrl ?? url);
       page = new URL(url);
     } catch {
       // An unparseable canonical is core-canonical-valid's finding.

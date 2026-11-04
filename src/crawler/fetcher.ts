@@ -21,6 +21,9 @@ import type {
  * Result of fetching a page
  */
 export interface FetchResult {
+  /** Requested address and final document address after redirects. */
+  requestedUrl?: string;
+  finalUrl?: string;
   /** Raw HTML content */
   html: string;
   /** Cheerio instance for DOM querying */
@@ -233,6 +236,8 @@ export async function fetchPage(
     return {
       html,
       $,
+      requestedUrl: url,
+      finalUrl: redirectChain?.at(-1)?.url ?? (response.url || url),
       headers,
       statusCode: response.status,
       responseTime: Math.round(responseTime),
@@ -318,10 +323,10 @@ interface LinkExtractionResult {
  * @param baseUrl - Base URL for resolving relative links
  * @returns Object with valid links and invalid links
  */
-function extractLinks($: CheerioAPI, baseUrl: string): LinkExtractionResult {
+function extractLinks($: CheerioAPI, baseUrl: string, documentUrl = baseUrl): LinkExtractionResult {
   const links: LinkInfo[] = [];
   const invalidLinks: InvalidLinkInfo[] = [];
-  const baseUrlObj = new URL(baseUrl);
+  const baseUrlObj = new URL(documentUrl);
 
   $('a[href]').each((_, element) => {
     const $el = $(element);
@@ -685,11 +690,22 @@ export function createAuditContext(
   cwv: CoreWebVitals = {}
 ): AuditContext {
   const { html, $, headers, statusCode, responseTime, cookies, redirectChain } = fetchResult;
-  const { links, invalidLinks } = extractLinks($, url);
+  const finalUrl = fetchResult.finalUrl ?? redirectChain?.at(-1)?.url ?? url;
+  let documentBaseUrl = finalUrl;
+  const base = $('base[href]').first().attr('href');
+  if (base !== undefined) {
+    try {
+      const resolved = new URL(base, finalUrl);
+      if (['http:', 'https:'].includes(resolved.protocol)) documentBaseUrl = resolved.href;
+    } catch { /* Invalid base falls back to the document address. */ }
+  }
+  const { links, invalidLinks } = extractLinks($, documentBaseUrl, finalUrl);
   const specialLinks = extractSpecialLinks($);
 
   return {
-    url,
+    url: finalUrl,
+    requestedUrl: url,
+    documentBaseUrl,
     html,
     $,
     headers,
@@ -697,7 +713,7 @@ export function createAuditContext(
     responseTime,
     cwv,
     links,
-    images: extractImages($, url),
+    images: extractImages($, documentBaseUrl),
     invalidLinks,
     specialLinks,
     figures: extractFigures($),

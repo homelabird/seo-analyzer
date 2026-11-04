@@ -67,7 +67,7 @@ export const hreflangLangMismatchRule = defineRule({
       if (!href || !hreflang || hreflang === 'x-default') continue;
 
       try {
-        const hrefUrl = new URL(href, url);
+        const hrefUrl = new URL(href, context.documentBaseUrl ?? url);
         if (
           hrefUrl.host === currentUrl.host &&
           hrefUrl.pathname === currentUrl.pathname

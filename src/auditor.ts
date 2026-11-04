@@ -438,7 +438,7 @@ export class Auditor {
     }
 
     // Enrich with robots.txt, sitemap, and rendered DOM
-    await this.enrichContext(context, url);
+    await this.enrichContext(context, context.url);
     if (renderedHtml) {
       context.renderedHtml = renderedHtml;
       context.rendered$ = rendered$;
@@ -468,7 +468,7 @@ export class Auditor {
       1,
       buildPageSnapshot(context),
       this.runOptions(false, 1, 1),
-      { pages: [url], detail: 'per-page' }
+      { pages: [context.url], detail: 'per-page' }
     );
     return sanitizeForOutput(applyScoreCaps(result, pageCaps(readPageFacts(context), { staging: this.options.staging })));
   }
@@ -576,9 +576,9 @@ export class Auditor {
       crawledPages.length,
       undefined,
       this.runOptions(true, maxPages, concurrency),
-      { pages: crawledPages.map((p) => p.url), detail: 'per-page' }
+      { pages: crawledPages.map((p) => p.context.url), detail: 'per-page' }
     );
-    const start = crawledPages.find((page) => page.url === site.entryUrl && !page.error);
+    const start = crawledPages.find((page) => site.normalize(page.url) === site.entryUrl && !page.error);
     if (!start) return sanitizeForOutput(result);
     return sanitizeForOutput(applyScoreCaps(
       result,

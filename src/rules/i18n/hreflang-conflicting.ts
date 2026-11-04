@@ -64,7 +64,7 @@ export const hreflangConflictingRule = defineRule({
       // Normalize the URL for comparison
       let normalizedHref: string;
       try {
-        const parsed = new URL(href, url);
+        const parsed = new URL(href, context.documentBaseUrl ?? url);
         normalizedHref = parsed.href;
       } catch {
         normalizedHref = href;

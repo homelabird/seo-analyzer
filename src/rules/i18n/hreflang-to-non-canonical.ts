@@ -40,7 +40,7 @@ export const hreflangToNonCanonicalRule = defineRule({
 
     let canonicalUrl: URL;
     try {
-      canonicalUrl = new URL(canonicalHref, url);
+      canonicalUrl = new URL(canonicalHref, context.documentBaseUrl ?? url);
     } catch {
       return pass('i18n-hreflang-to-non-canonical', 'Cannot parse canonical URL for comparison', {
         hasHreflang: true,
@@ -68,7 +68,7 @@ export const hreflangToNonCanonicalRule = defineRule({
       if (!href) return;
 
       try {
-        const hrefUrl = new URL(href, url);
+        const hrefUrl = new URL(href, context.documentBaseUrl ?? url);
 
         // Check if this hreflang entry points to the current page
         if (

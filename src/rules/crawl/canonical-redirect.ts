@@ -143,7 +143,7 @@ export const canonicalRedirectRule = defineRule({
     // Resolve relative canonical to absolute URL
     let absoluteCanonical: string;
     try {
-      absoluteCanonical = new URL(canonical, url).href;
+      absoluteCanonical = new URL(canonical, context.documentBaseUrl ?? url).href;
     } catch {
       return fail(
         'crawl-canonical-redirect',
