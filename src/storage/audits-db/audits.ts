@@ -34,6 +34,7 @@ function hydrateAudit(row: DbAudit): HydratedAudit {
     status: row.status,
     source: (row.source as AuditSource | null) ?? null,
     engineVersion: row.engine_version ?? null,
+    ...(row.result_json && { resultMetadata: JSON.parse(row.result_json) }),
     run: row.run_json ? (JSON.parse(row.run_json) as AuditRunOptions) : null,
   });
 }
@@ -43,6 +44,7 @@ function hydrateAudit(row: DbAudit): HydratedAudit {
  */
 export function toAuditSummary(row: DbAudit): AuditSummary {
   return sanitizeForOutput({
+    ...(row.result_json && { measured: JSON.parse(row.result_json).measured }),
     id: row.id,
     auditId: row.audit_id,
     domain: row.domain,
@@ -77,8 +79,8 @@ export function createAudit(
       `
     INSERT INTO audits (
       audit_id, domain, project_name, crawl_id, start_url,
-      overall_score, config_json, source, engine_version, run_json
-    ) VALUES (?, ?, ?, ?, ?, 0, ?, ?, ?, ?)
+      overall_score, config_json, source, engine_version, run_json, result_json
+    ) VALUES (?, ?, ?, ?, ?, 0, ?, ?, ?, ?, ?)
     RETURNING *
   `
     )
@@ -91,7 +93,8 @@ export function createAudit(
       input.config ? JSON.stringify(input.config) : null,
       input.source ?? null,
       input.engineVersion ?? null,
-      input.run ? JSON.stringify(input.run) : null
+      input.run ? JSON.stringify(input.run) : null,
+      input.resultMetadata ? JSON.stringify(input.resultMetadata) : null
     ) as DbAudit;
 
   return hydrateAudit(result);

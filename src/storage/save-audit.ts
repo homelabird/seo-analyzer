@@ -184,6 +184,7 @@ export function saveAuditToDatabase(result: AuditResult, options: SaveAuditOptio
       auditId,
       domain,
       startUrl,
+      resultMetadata: { measured: result.measured, scoreCap: result.scoreCap, waivedCaps: result.waivedCaps, coverage: result.coverage, page: result.page, schemaVersion: result.schemaVersion },
       source: options.source ?? 'cli',
       engineVersion: getVersion(),
       ...(run && { run }),

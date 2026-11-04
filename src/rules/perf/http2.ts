@@ -1,52 +1,15 @@
 import type { AuditContext } from '../../types.js';
-import { defineRule, pass, warn } from '../define-rule.js';
+import { defineRule, pass, warn, notMeasured } from '../define-rule.js';
 
-/**
- * Rule: Check for modern HTTP protocol support (HTTP/2, HTTP/3)
- *
- * HTTP/2 and HTTP/3 provide multiplexing, header compression, and
- * server push, significantly improving page load performance over
- * HTTP/1.1. The alt-svc header advertises HTTP/3 support, which is
- * a strong signal that the server uses modern protocols.
- *
- * Note: HTTP protocol version is not directly exposed through fetch
- * response headers, so we use the alt-svc header as a heuristic.
- */
+/** Use observed navigation protocol, rather than inferring it from Alt-Svc. */
 export const http2Rule = defineRule({
-  id: 'perf-http2',
-  name: 'HTTP/2+ Support',
-  description: 'Checks for indicators of HTTP/2 or HTTP/3 protocol support (alt-svc header)',
-  category: 'perf',
-  weight: 5,
+  id: 'perf-http2', name: 'HTTP/2+ Support',
+  description: 'Checks the protocol observed by browser navigation timing',
+  category: 'perf', weight: 5,
   run: (context: AuditContext) => {
-    const altSvc = context.headers['alt-svc'] || '';
-
-    const details: Record<string, unknown> = {
-      altSvc: altSvc || 'not set',
-    };
-
-    if (altSvc) {
-      const supportsH3 = altSvc.includes('h3');
-
-      if (supportsH3) {
-        return pass(
-          'perf-http2',
-          'HTTP/3 support advertised via alt-svc header — optimal protocol performance',
-          { ...details, protocol: 'h3' }
-        );
-      }
-
-      return pass(
-        'perf-http2',
-        `alt-svc header present ("${altSvc.length > 80 ? altSvc.slice(0, 80) + '...' : altSvc}") — modern protocol support indicated`,
-        details
-      );
-    }
-
-    return warn(
-      'perf-http2',
-      'No alt-svc header found — server may not support HTTP/2 or HTTP/3 (informational)',
-      details
-    );
+    const protocol = context.httpProtocol;
+    if (!protocol) return notMeasured('perf-http2', 'Navigation protocol was not collected; Alt-Svc alone cannot establish HTTP/2 support');
+    if (/^(h2|h3(?:-\d+)?|http\/2|http\/3)$/i.test(protocol)) return pass('perf-http2', `Navigation used ${protocol}`, { protocol });
+    return warn('perf-http2', `Navigation used ${protocol}; a multiplexed protocol was not observed`, { protocol });
   },
 });

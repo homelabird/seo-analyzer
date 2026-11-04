@@ -28,7 +28,7 @@ export const llmsTxtRule = defineRule({
   description:
     'Checks if the page references an llms.txt file for AI discoverability (emerging standard)',
   category: 'geo',
-  weight: 15,
+  weight: 0,
   run: (context: AuditContext) => {
     const { $ } = context;
 

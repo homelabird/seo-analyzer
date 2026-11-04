@@ -43,6 +43,7 @@ export function CategoryGrid({ categories, activeCategory, onCategoryClick }: Ca
           key={cat.categoryId}
           name={CATEGORY_NAMES[cat.categoryId] ?? cat.categoryId}
           score={cat.score}
+          measured={cat.measured}
           passCount={cat.passCount}
           warnCount={cat.warnCount}
           failCount={cat.failCount}

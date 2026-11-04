@@ -1,6 +1,5 @@
-import type { AssetInfo, AuditContext, RuleResult } from '../../types.js';
+import type { AuditContext, RuleResult } from '../../types.js';
 import { defineRule, pass, warn, notMeasured } from '../define-rule.js';
-import { assetContentLength, partitionBySizeKnown, unsizedReason } from './asset-size.js';
 
 // Reference hint: performance/minify-css
 
@@ -12,18 +11,6 @@ const THRESHOLDS = {
   minBytesToCheck: 500,
   /** Whitespace ratio above this value suggests unminified CSS */
   whitespaceRatio: 0.15,
-};
-
-/**
- * Thresholds for the external-stylesheet heuristic. Asset bodies cannot be
- * read (only response headers are captured), so external minification is
- * inferred from size and the absence of a `.min.` marker in the URL.
- */
-const EXTERNAL_THRESHOLDS = {
-  /** External stylesheets above this size should be minified */
-  minBytesToCheck: 2048,
-  /** How many suspect URLs to list in the result message */
-  maxListed: 5,
 };
 
 /**
@@ -42,21 +29,6 @@ function calculateWhitespaceRatio(text: string): number {
 
   const wastedChars = newlineCount + extraSpaces + tabCount;
   return wastedChars / text.length;
-}
-
-/**
- * External stylesheets whose minification is worth judging: served OK, and
- * from a URL without a `.min.` marker. Size decides which of these are
- * actually suspect, and size is only readable when `content-length` is set.
- */
-function findCandidateStylesheets(assets: AssetInfo[]): AssetInfo[] {
-  return assets.filter(
-    (a) =>
-      a.resourceType === 'stylesheet' &&
-      a.statusCode >= 200 &&
-      a.statusCode < 300 &&
-      !a.url.split('?')[0].toLowerCase().includes('.min.')
-  );
 }
 
 /**
@@ -122,62 +94,21 @@ function checkInlineCss(context: AuditContext): RuleResult {
 /**
  * Rule: Check if CSS appears to be minified
  *
- * Inline CSS is checked directly (whitespace ratio). When per-asset render
- * data is available, large external stylesheets served from URLs without a
- * `.min.` marker are flagged as suspects — a heuristic only, since asset
- * bodies are not captured.
+ * Inline content is checked directly; external bodies are unmeasured.
  */
 export const minifyCssRule = defineRule({
   id: 'perf-minify-css',
   name: 'Minify Inline CSS',
   description:
-    'Checks if inline CSS in <style> tags appears to be minified, and heuristically flags large external stylesheets without a .min. URL marker',
+    'Checks if inline CSS in <style> tags appears to be minified, external bodies remain unmeasured',
   category: 'perf',
   weight: 5,
   run: (context: AuditContext) => {
     const inlineResult = checkInlineCss(context);
 
-    const { assets } = context;
-    if (!assets) return inlineResult;
-
-    const { sized, unsized } = partitionBySizeKnown(findCandidateStylesheets(assets));
-    const suspects = sized.filter(
-      (a) => (assetContentLength(a) ?? 0) > EXTERNAL_THRESHOLDS.minBytesToCheck
-    );
-
-    if (suspects.length === 0) {
-      // No suspect is provable and some candidates could not be sized. The
-      // inline verdict alone ("No inline CSS found") would read as a clean bill
-      // of health for stylesheets this audit never examined.
-      if (unsized.length > 0 && inlineResult.status === 'pass') {
-        return notMeasured(
-          'perf-minify-css',
-          `Could not check external stylesheet minification — ${unsizedReason(unsized.length, 'stylesheet')}. ${inlineResult.message}`,
-          { ...inlineResult.details, unsizedCount: unsized.length, unsized: unsized.map((a) => a.url) }
-        );
-      }
-      return inlineResult;
-    }
-
-    const listed = suspects.slice(0, EXTERNAL_THRESHOLDS.maxListed).map((a) => a.url);
-    const suffix =
-      suspects.length > EXTERNAL_THRESHOLDS.maxListed
-        ? `, and ${suspects.length - EXTERNAL_THRESHOLDS.maxListed} more`
-        : '';
-    const suspectMessage =
-      `${suspects.length} external stylesheet(s) appear unminified ` +
-      `(heuristic: >${EXTERNAL_THRESHOLDS.minBytesToCheck} bytes and URL lacks ".min." — asset bodies are not inspected): ` +
-      `${listed.join(', ')}${suffix}` +
-      (unsized.length > 0 ? `; additionally, ${unsizedReason(unsized.length, 'stylesheet')}` : '');
-    const details = {
-      ...inlineResult.details,
-      externalSuspects: suspects.map((a) => a.url),
-      unsizedCount: unsized.length,
-    };
-
-    if (inlineResult.status !== 'pass') {
-      return warn('perf-minify-css', `${inlineResult.message} — additionally, ${suspectMessage}`, details);
-    }
-    return warn('perf-minify-css', suspectMessage, details);
+    const external = context.assets?.filter((asset) => asset.resourceType === 'stylesheet');
+    if (!external?.length) return inlineResult;
+    if (inlineResult.status !== 'pass') return { ...inlineResult, details: { ...inlineResult.details, externalUnmeasured: external.length } };
+    return notMeasured('perf-minify-css', 'External asset bodies were not collected; filename and encoded size cannot establish minification', { ...inlineResult.details, externalUnmeasured: external.length });
   },
 });

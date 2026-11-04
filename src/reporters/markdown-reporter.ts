@@ -83,14 +83,16 @@ export function renderMarkdownReport(result: AuditResult): string {
   }
   lines.push('');
 
+  if (result.coverage?.unavailableMeasurements?.length) lines.push(`Measurements unavailable: ${escapeMarkdown(result.coverage.unavailableMeasurements.join('; '))}`, '');
+
   // Overall Score
   lines.push('## Overall Score');
   lines.push('');
   lines.push(`| Score | Rating |`);
   lines.push(`|-------|--------|`);
-  lines.push(`| **${result.overallScore}/100** ${getScoreEmoji(result.overallScore)} | ${scoreToVerdict(result.overallScore).label} |`);
+  lines.push(`| **${result.measured === false ? 'N/A' : `${result.overallScore}/100`}** ${result.measured === false ? '' : getScoreEmoji(result.overallScore)} | ${scoreToVerdict(result.measured === false ? null : result.overallScore).label} |`);
   lines.push('');
-  lines.push(result.overallScore >= 70
+  lines.push(result.measured === false ? '> Not measured: no scored readings were collected.' : result.overallScore >= 70
     ? '> :white_check_mark: **Audit passed** (score >= 70)'
     : '> :x: **Audit failed** (score < 70)');
   lines.push('');
@@ -132,7 +134,7 @@ export function renderMarkdownReport(result: AuditResult): string {
     const emoji = getScoreEmoji(categoryResult.score);
 
     const row =
-      `| ${escapeMarkdown(categoryName)} | ${categoryResult.score} ${emoji} ` +
+      `| ${escapeMarkdown(categoryName)} | ${categoryResult.measured === false ? 'N/A' : categoryResult.score} ${categoryResult.measured === false ? '' : emoji} ` +
       `| ${categoryResult.passCount} | ${categoryResult.warnCount} | ${categoryResult.failCount} |`;
 
     lines.push(anyNotMeasured ? `${row} ${categoryResult.notMeasuredCount ?? 0} |` : row);

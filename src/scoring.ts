@@ -40,6 +40,7 @@ export function calculateCategoryScore(results: RuleResult[]): number {
   let totalWeight = 0;
 
   for (const result of results) {
+    if (isNotMeasured(result)) continue;
     // Weight 0 makes the contribution zero either way, so the score of an
     // unmeasured result never reaches the average. Mapped explicitly so the
     // record stays exhaustive over RuleStatus.
@@ -76,7 +77,7 @@ export function calculateCategoryScore(results: RuleResult[]): number {
  *     cannot say "nothing else matters": a noindex page scored 94 and a
  *     one-word page 85, held up by server checks that read the same on every
  *     page.
- * 5 — correct document URL resolution and evidence-based audit scoring.
+ * 5 — exclude entirely unmeasured categories; evidence-based rule corrections.
  * 4 — a crawl is capped when its start page cannot be indexed. A site that
  *     was noindex on every page crawled to 92, and one behind `Disallow: /`
  *     to 93, while a single-page audit of either scored 20.
@@ -108,6 +109,7 @@ export function calculateOverallScore(
   let totalWeight = 0;
 
   for (const result of categoryResults) {
+    if (result.measured === false || (result.results.length > 0 && result.results.every(isNotMeasured))) continue;
     const weight = categoryWeights.get(result.categoryId) ?? 0;
     if (weight > 0) {
       totalWeightedScore += result.score * weight;
@@ -163,6 +165,7 @@ export function buildCategoryResult(
 
   return {
     categoryId,
+    measured: ruleResults.some((result) => !isNotMeasured(result) && (result.weight ?? 1) > 0),
     score: calculateCategoryScore(ruleResults),
     passCount,
     warnCount,
@@ -195,6 +198,7 @@ export function buildAuditResult(
 ): AuditResult {
   return {
     schemaVersion: AUDIT_SCHEMA_VERSION,
+    measured: categoryResults.some((category) => category.measured !== false),
     url,
     overallScore: calculateOverallScore(categoryResults, categories),
     categoryResults,

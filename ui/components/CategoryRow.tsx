@@ -53,8 +53,8 @@ export function CategoryRow({ categories, activeCategory, onCategoryClick }: Cat
                 {issues}
               </span>
             )}
-            <span className="font-semibold tabular-nums" style={{ color: getScoreColor(category.score) }}>
-              {category.score}
+            <span className="font-semibold tabular-nums" style={{ color: getScoreColor(category.measured === false ? null : category.score) }}>
+              {category.measured === false ? 'N/A' : category.score}
             </span>
           </button>
         );

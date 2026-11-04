@@ -1,156 +1,46 @@
 import type { AuditContext } from '../../types.js';
-import { defineRule, pass, warn, notMeasured } from '../define-rule.js';
 import { registerResettable } from '../registry.js';
+import { sanitizeForOutput } from '../../sanitize.js';
+import { defineRule, pass, warn, notMeasured } from '../define-rule.js';
 
-/**
- * Module-level registry for tracking crawled URLs across pages.
- * Populated during multi-page crawls to enable cross-page analysis.
- */
-const crawledUrls = new Set<string>();
-
-/**
- * Module-level registry for sitemap URLs to check against crawled URLs.
- */
-const sitemapCheckUrls = new Set<string>();
-
-/**
- * Normalize URL for comparison
- * Lowercases host, removes trailing slash, preserves query string
- */
-function normalizeUrl(url: string): string {
-  try {
-    const urlObj = new URL(url);
-    let path = urlObj.pathname;
-    if (path.length > 1 && path.endsWith('/')) {
-      path = path.slice(0, -1);
-    }
-    return `${urlObj.protocol}//${urlObj.host.toLowerCase()}${path}${urlObj.search}`;
-  } catch {
-    return url.toLowerCase().replace(/\/$/, '');
-  }
-}
-
-/**
- * Reset the orphan URL registries (useful for testing and between audits)
- */
-export function resetOrphanRegistry(): void {
-  crawledUrls.clear();
-  sitemapCheckUrls.clear();
-}
-
+let lastStats = { crawledUrlCount: 0, sitemapUrlCount: 0, orphanUrls: [] as string[] };
+/** Reset the compatibility summary; verdicts never read this state. */
+export function resetOrphanRegistry(): void { lastStats = { crawledUrlCount: 0, sitemapUrlCount: 0, orphanUrls: [] }; }
 registerResettable(resetOrphanRegistry);
+/** Last graph's candidates, retained for callers of the previous registry API. */
+export function getOrphanStats(): typeof lastStats { return sanitizeForOutput({ ...lastStats, orphanUrls: [...lastStats.orphanUrls] }); }
 
-/**
- * Get statistics from the orphan URL registries
- */
-export function getOrphanStats(): {
-  crawledUrlCount: number;
-  sitemapUrlCount: number;
-  orphanUrls: string[];
-} {
-  const orphanUrls: string[] = [];
-  for (const url of sitemapCheckUrls) {
-    if (!crawledUrls.has(url)) {
-      orphanUrls.push(url);
-    }
-  }
-  return {
-    crawledUrlCount: crawledUrls.size,
-    sitemapUrlCount: sitemapCheckUrls.size,
-    orphanUrls,
-  };
-}
-
-/**
- * Rule: Sitemap Orphan URLs
- *
- * Detects sitemap URLs that are not linked from any crawled page.
- * Orphan URLs in a sitemap may indicate pages that lack internal linking,
- * which reduces their discoverability and crawl priority.
- *
- * This rule uses module-level registries to accumulate data across
- * multiple page runs during a crawl. For single-page audits it collects
- * data but cannot determine orphan status.
- */
+/** Compare the sitemap against a finished link graph, never an accumulating page registry. */
 export const sitemapOrphanUrlsRule = defineRule({
   id: 'crawl-sitemap-orphan-urls',
   name: 'Sitemap Orphan URLs',
-  description: 'Checks if sitemap contains URLs not linked from any crawled page',
+  description: 'Checks sitemap URLs for missing inbound links in a completed crawl',
   category: 'crawl',
   weight: 7,
-  run: async (context: AuditContext) => {
-    // Without a crawl the registry holds only this page, so a pass here
-    // would compare it against nothing.
-    if (!context.site) {
-      return notMeasured('crawl-sitemap-orphan-urls', 'Orphan detection needs the links of crawled pages - run with --crawl to build them');
+  run: (context: AuditContext) => {
+    const { site, sitemapUrls } = context;
+    if (!site || !sitemapUrls?.length) {
+      return notMeasured('crawl-sitemap-orphan-urls', 'Orphan detection needs a crawl graph and a sitemap URL inventory');
     }
-
-    const { links, url } = context;
-    const sitemapUrls = (context as any).sitemapUrls as string[] | undefined;
-
-    // Register the current page URL as crawled
-    crawledUrls.add(normalizeUrl(url));
-
-    // Register all internal link destinations as crawled URLs
-    for (const link of links) {
-      if (link.isInternal && link.href) {
-        try {
-          const absoluteHref = new URL(link.href, url).href;
-          crawledUrls.add(normalizeUrl(absoluteHref));
-        } catch {
-          // Skip malformed URLs
-        }
-      }
-    }
-
-    // Register sitemap URLs if available
-    if (sitemapUrls && sitemapUrls.length > 0) {
-      for (const sitemapUrl of sitemapUrls) {
-        sitemapCheckUrls.add(normalizeUrl(sitemapUrl));
-      }
-    }
-
-    // Check for orphan URLs (sitemap URLs not found in crawled URLs)
-    const orphanUrls: string[] = [];
-    for (const sitemapUrl of sitemapCheckUrls) {
-      if (!crawledUrls.has(sitemapUrl)) {
-        orphanUrls.push(sitemapUrl);
-      }
-    }
-
+    const orphans = [...new Set(sitemapUrls.map(site.normalize))].filter((url) =>
+      url !== site.entryUrl && !site.inboundLinksByUrl.get(url)?.size);
+    lastStats = { crawledUrlCount: site.pageCount, sitemapUrlCount: new Set(sitemapUrls.map(site.normalize)).size, orphanUrls: orphans };
     const details = {
-      crawledUrlCount: crawledUrls.size,
-      sitemapUrlCount: sitemapCheckUrls.size,
-      orphanCount: orphanUrls.length,
-      orphanUrls: orphanUrls.slice(0, 10),
+      crawledUrlCount: site.pageCount,
+      sitemapUrlCount: new Set(sitemapUrls.map(site.normalize)).size,
+      candidateCount: orphans.length,
+      candidateUrls: orphans.slice(0, 10),
+      complete: site.coverage?.complete === true,
     };
-
-    // If we have no sitemap URLs to compare, just collect data
-    if (sitemapCheckUrls.size === 0) {
-      return pass(
-        'crawl-sitemap-orphan-urls',
-        'No sitemap URLs available for orphan detection',
-        { ...details, note: 'Data is being collected for cross-page analysis' }
-      );
+    const inventoryMissing = sitemapUrls.some((url) => !site.pages?.has(site.normalize(url)));
+    if (!site.coverage?.complete || inventoryMissing || context.sitemapTruncated || (context.sitemapSkippedCount ?? 0) > 0) {
+      return notMeasured('crawl-sitemap-orphan-urls', 'Crawl or sitemap coverage is partial; URLs without observed inbound links are candidates, not confirmed orphans', details);
     }
-
-    if (orphanUrls.length > 0) {
-      const orphanPercent = ((orphanUrls.length / sitemapCheckUrls.size) * 100).toFixed(1);
-      return warn(
-        'crawl-sitemap-orphan-urls',
-        `${orphanUrls.length} sitemap URL(s) (${orphanPercent}%) are not linked from any crawled page`,
-        {
-          ...details,
-          impact: 'Orphan pages lack internal links, reducing discoverability and crawl priority',
-          recommendation: 'Add internal links to orphan pages or remove them from the sitemap if obsolete',
-        }
-      );
+    if (orphans.length) {
+      return warn('crawl-sitemap-orphan-urls', `${orphans.length} sitemap URL(s) have no inbound links in the completed crawl`, {
+        ...details, orphanCount: orphans.length, orphanUrls: orphans.slice(0, 10),
+      });
     }
-
-    return pass(
-      'crawl-sitemap-orphan-urls',
-      `All ${sitemapCheckUrls.size} sitemap URLs are linked from crawled pages`,
-      details
-    );
+    return pass('crawl-sitemap-orphan-urls', 'All sitemap URLs have inbound links or are the crawl entry', { ...details, orphanCount: 0 });
   },
 });

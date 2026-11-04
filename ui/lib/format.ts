@@ -9,7 +9,7 @@
 import { scoreToVerdict, verdictCssVar, verdictStyle } from '@core/verdict.js';
 import type { RuleStatus } from '@core/types.js';
 
-export function getScoreColor(score: number): string {
+export function getScoreColor(score: number | null): string {
   // Derived from the shared verdict, so a score cannot be green here and amber
   // in the report. Returns a CSS var, never a literal.
   return verdictCssVar(scoreToVerdict(score).colorToken);
@@ -24,7 +24,7 @@ export function getScoreColor(score: number): string {
  */
 export { verdictStyle };
 
-export function getScoreLabel(score: number): string {
+export function getScoreLabel(score: number | null): string {
   return scoreToVerdict(score).label;
 }
 

@@ -69,7 +69,8 @@ const TOKEN_COLORS: Record<VerdictToken, (text: string) => string> = {
  * @param score - Score from 0-100
  * @returns Formatted string like "43/100 (F)"
  */
-export function formatScoreWithGrade(score: number): string {
+export function formatScoreWithGrade(score: number | null): string {
+  if (score === null) return chalk.gray('N/A (not measured)');
   const { grade, color } = getLetterGrade(score);
   return color(`${score}/100 (${grade})`);
 }

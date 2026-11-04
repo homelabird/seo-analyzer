@@ -52,7 +52,7 @@ export function CategorySection({ category, filter, ruleMetadata, defaultExpande
   }
   const expanded = override ?? defaultExpanded;
   const setExpanded = (next: boolean): void => setOverride(next);
-  const color = getScoreColor(category.score);
+  const color = getScoreColor(category.measured === false ? null : category.score);
   const name = CATEGORY_NAMES[category.categoryId] ?? category.categoryId;
 
   const filteredRules =
@@ -90,9 +90,9 @@ export function CategorySection({ category, filter, ruleMetadata, defaultExpande
           </span>
           <span
             className="text-xs px-2 py-0.5 rounded-full font-bold"
-            style={verdictStyle(category.score)}
+            style={verdictStyle(category.measured === false ? null : category.score)}
           >
-            {Math.round(category.score)}
+            {category.measured === false ? 'N/A' : Math.round(category.score)}
           </span>
         </div>
         <div className="flex gap-2 text-xs" style={{ color: 'var(--color-text-muted)' }}>

@@ -18,6 +18,7 @@ import type { RuleDiff } from '../storage/audits-db/rule-diff.js';
 
 /** One row of the audit list */
 export interface AuditSummaryDto {
+  measured?: boolean;
   id: number;
   auditId: string;
   domain: string;
@@ -117,6 +118,7 @@ export interface StoredComparison {
 /** Serialize a storage summary for transport */
 export function toAuditSummaryDto(summary: AuditSummary): AuditSummaryDto {
   return {
+    ...(summary.measured !== undefined && { measured: summary.measured }),
     id: summary.id,
     auditId: summary.auditId,
     domain: summary.domain,

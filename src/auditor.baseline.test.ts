@@ -90,13 +90,14 @@ export function makeBaselineFetch() {
  * eeat-author-expertise (no author) report not measured instead of a pass and
  * a "not applicable" warn: a11y keeps 98, eeat rises 87 -> 90.
  */
+// Scoring v5 removes HSTS/Alt-Svc guesses and unweights the llms.txt hint.
 const EXPECTED_CATEGORIES: Record<string, [number, number, number, number, number]> = {
   core: [99, 21, 1, 1, 1],
   technical: [99, 17, 0, 1, 0],
-  perf: [90, 15, 5, 0, 8],
+  perf: [91, 15, 4, 0, 9],
   links: [97, 17, 1, 1, 8],
   images: [59, 8, 4, 2, 0],
-  security: [78, 15, 6, 3, 2],
+  security: [83, 15, 5, 2, 4],
   crawl: [99, 20, 1, 0, 17],
   schema: [92, 13, 2, 0, 4],
   a11y: [98, 34, 1, 0, 1],
@@ -110,7 +111,7 @@ const EXPECTED_CATEGORIES: Record<string, [number, number, number, number, numbe
   js: [100, 3, 0, 0, 13],
   redirect: [100, 8, 0, 0, 3],
   htmlval: [100, 11, 0, 0, 0],
-  geo: [81, 8, 5, 0, 0],
+  geo: [86, 8, 4, 0, 1],
 };
 const EXPECTED_OVERALL = 91;
 

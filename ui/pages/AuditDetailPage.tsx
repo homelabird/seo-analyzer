@@ -205,7 +205,7 @@ export function AuditDetailPage() {
             className="p-6 rounded-xl border flex flex-wrap items-center gap-8"
             style={{ borderColor: 'var(--color-border)', backgroundColor: 'var(--color-bg-elevated)' }}
           >
-            <ScoreCircle score={result.overallScore} size={140} />
+            <ScoreCircle score={result.measured === false ? null : result.overallScore} size={140} />
             <div className="space-y-3 min-w-0">
               <div>
                 <h1 className="text-xl font-semibold truncate" style={{ color: 'var(--color-text)' }}>
@@ -227,6 +227,15 @@ export function AuditDetailPage() {
               />
             </div>
           </section>
+
+          {(result.scoreCap || result.waivedCaps?.length || result.coverage?.unavailableMeasurements?.length || result.coverage?.crawl?.complete === false) && (
+            <div className="rounded-lg border p-4 text-sm space-y-2" style={{ borderColor: 'var(--color-border)', color: 'var(--color-text-secondary)' }}>
+              {!!result.coverage?.unavailableMeasurements?.length && <p>Unavailable measurements: {result.coverage.unavailableMeasurements.join('; ')}</p>}
+              {result.scoreCap && <p>Score limited from {result.scoreCap.uncappedScore}: {result.scoreCap.caps.map((cap) => cap.reason).join('; ')}</p>}
+              {!!result.waivedCaps?.length && <p>Staging exceptions: {result.waivedCaps.map((cap) => cap.reason).join('; ')}</p>}
+              {result.coverage?.crawl?.complete === false && <p>Partial crawl: some pages were limited, excluded or could not be collected. Orphan-page conclusions are unavailable.</p>}
+            </div>
+          )}
 
           {/* Actions */}
           <div className="flex flex-wrap items-center gap-2">

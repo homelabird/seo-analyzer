@@ -129,6 +129,7 @@ export function initializeAuditsSchema(db: Database.Database): void {
   ensureColumn(db, 'audits', 'source', 'TEXT');
   ensureColumn(db, 'audits', 'engine_version', 'TEXT');
   ensureColumn(db, 'audits', 'run_json', 'TEXT');
+  ensureColumn(db, 'audits', 'result_json', 'TEXT');
 }
 
 /**

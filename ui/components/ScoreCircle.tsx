@@ -6,14 +6,14 @@
 import { getScoreColor, getScoreLabel, verdictStyle } from '../lib/format.js';
 
 interface ScoreCircleProps {
-  score: number;
+  score: number | null;
   size?: number;
 }
 
 export function ScoreCircle({ score, size = 140 }: ScoreCircleProps) {
   const radius = (size / 2) - 12;
   const circumference = 2 * Math.PI * radius;
-  const dashOffset = circumference - (score / 100) * circumference;
+  const dashOffset = circumference - ((score ?? 0) / 100) * circumference;
   const color = getScoreColor(score);
   const label = getScoreLabel(score);
 
@@ -51,7 +51,7 @@ export function ScoreCircle({ score, size = 140 }: ScoreCircleProps) {
           fontWeight="700"
           fontFamily="var(--font-sans)"
         >
-          {Math.round(score)}
+          {score === null ? 'N/A' : Math.round(score)}
         </text>
       </svg>
       <span

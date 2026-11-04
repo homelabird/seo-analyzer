@@ -7,6 +7,7 @@ import { getScoreColor } from '../lib/format.js';
 interface CategoryBarProps {
   name: string;
   score: number;
+  measured?: boolean;
   passCount: number;
   warnCount: number;
   failCount: number;
@@ -17,13 +18,14 @@ interface CategoryBarProps {
 export function CategoryBar({
   name,
   score,
+  measured,
   passCount,
   warnCount,
   failCount,
   onClick,
   active,
 }: CategoryBarProps) {
-  const color = getScoreColor(score);
+  const color = getScoreColor(measured === false ? null : score);
 
   return (
     <button
@@ -39,7 +41,7 @@ export function CategoryBar({
           {name}
         </span>
         <span className="text-sm font-bold" style={{ color }}>
-          {Math.round(score)}
+          {measured === false ? 'N/A' : Math.round(score)}
         </span>
       </div>
       <div className="h-1.5 rounded-full bg-[var(--color-border)]">

@@ -31,7 +31,7 @@ export const nosnippetRule = defineRule({
 
       // Check for max-snippet:0 which effectively blocks snippets
       const maxSnippetMatch = content.match(/max-snippet\s*:\s*(-?\d+)/);
-      if (maxSnippetMatch && parseInt(maxSnippetMatch[1], 10) <= 0) {
+      if (maxSnippetMatch && parseInt(maxSnippetMatch[1], 10) === 0) {
         issues.push(`Meta robots contains "max-snippet:${maxSnippetMatch[1]}" (blocks snippets)`);
       }
     });
@@ -47,7 +47,7 @@ export const nosnippetRule = defineRule({
       }
 
       const maxSnippetMatch = content.match(/max-snippet\s*:\s*(-?\d+)/);
-      if (maxSnippetMatch && parseInt(maxSnippetMatch[1], 10) <= 0) {
+      if (maxSnippetMatch && parseInt(maxSnippetMatch[1], 10) === 0) {
         issues.push(`Meta googlebot contains "max-snippet:${maxSnippetMatch[1]}" (blocks snippets)`);
       }
     });
@@ -63,7 +63,7 @@ export const nosnippetRule = defineRule({
       }
 
       const maxSnippetMatch = lowerTag.match(/max-snippet\s*:\s*(-?\d+)/);
-      if (maxSnippetMatch && parseInt(maxSnippetMatch[1], 10) <= 0) {
+      if (maxSnippetMatch && parseInt(maxSnippetMatch[1], 10) === 0) {
         issues.push(`X-Robots-Tag header contains "max-snippet:${maxSnippetMatch[1]}" (blocks snippets)`);
       }
     }

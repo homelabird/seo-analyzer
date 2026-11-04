@@ -220,7 +220,7 @@ describe('perf-minify-js external asset extension', () => {
     expect(result.details?.externalSuspects).toBeUndefined();
   });
 
-  it('ignores large external scripts served from a .min. URL', async () => {
+  it('does not infer minification from a .min. URL', async () => {
     const result = await minifyJsRule.run(
       createContext([
         createAsset({
@@ -229,10 +229,10 @@ describe('perf-minify-js external asset extension', () => {
         }),
       ])
     );
-    expect(result.status).toBe('pass');
+    expect(result.status).toBe('not-measured');
   });
 
-  it('warns on large external scripts without a .min. marker', async () => {
+  it('does not infer missing minification from a filename', async () => {
     const result = await minifyJsRule.run(
       createContext([
         createAsset({
@@ -241,13 +241,13 @@ describe('perf-minify-js external asset extension', () => {
         }),
       ])
     );
-    expect(result.status).toBe('warn');
-    expect(result.message).toContain('heuristic');
-    expect(result.message).toContain('bundle.js');
-    expect(result.details?.externalSuspects).toEqual(['https://example.com/bundle.js']);
+    expect(result.status).toBe('not-measured');
+    expect(result.weight).toBe(0);
+
+
   });
 
-  it('ignores small external scripts even without a .min. marker', async () => {
+  it('does not infer minification from encoded size', async () => {
     const result = await minifyJsRule.run(
       createContext([
         createAsset({
@@ -256,7 +256,7 @@ describe('perf-minify-js external asset extension', () => {
         }),
       ])
     );
-    expect(result.status).toBe('pass');
+    expect(result.status).toBe('not-measured');
   });
 });
 
@@ -268,7 +268,7 @@ describe('perf-minify-css external asset extension', () => {
     expect(result.details?.externalSuspects).toBeUndefined();
   });
 
-  it('warns on large external stylesheets without a .min. marker', async () => {
+  it('leaves external stylesheet bodies unmeasured', async () => {
     const result = await minifyCssRule.run(
       createContext([
         createAsset({
@@ -278,12 +278,12 @@ describe('perf-minify-css external asset extension', () => {
         }),
       ])
     );
-    expect(result.status).toBe('warn');
-    expect(result.message).toContain('stylesheet');
-    expect(result.message).toContain('styles.css');
+    expect(result.status).toBe('not-measured');
+    expect(result.weight).toBe(0);
+
   });
 
-  it('ignores minified-looking external stylesheets', async () => {
+  it('leaves minified-looking stylesheet bodies unmeasured', async () => {
     const result = await minifyCssRule.run(
       createContext([
         createAsset({
@@ -293,6 +293,6 @@ describe('perf-minify-css external asset extension', () => {
         }),
       ])
     );
-    expect(result.status).toBe('pass');
+    expect(result.status).toBe('not-measured');
   });
 });

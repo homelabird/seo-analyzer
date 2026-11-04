@@ -1,184 +1,70 @@
 import type { AuditContext } from '../../types.js';
 import { defineRule, pass, warn, notMeasured } from '../define-rule.js';
 
-interface ContrastIssue {
-  /** Element selector/description */
-  element: string;
-  /** Issue description */
-  issue: string;
+const NORMAL_CONTRAST = 4.5;
+const LARGE_CONTRAST = 3;
+const NAMED: Record<string, string> = {
+  black: '#000000', white: '#ffffff', gray: '#808080', grey: '#808080',
+  lightgray: '#d3d3d3', lightgrey: '#d3d3d3', silver: '#c0c0c0', gainsboro: '#dcdcdc',
+  red: '#ff0000', green: '#008000', blue: '#0000ff', yellow: '#ffff00',
+  cyan: '#00ffff', aqua: '#00ffff', lime: '#00ff00', navy: '#000080',
+  darkgray: '#a9a9a9', darkblue: '#00008b',
+};
+
+function color(value: string): number[] | undefined {
+  const raw = NAMED[value.toLowerCase()] ?? value.toLowerCase();
+  const hex = raw.match(/^#([\da-f]{3}|[\da-f]{6})$/i)?.[1];
+  if (hex) {
+    const full = hex.length === 3 ? [...hex].map((c) => c + c).join('') : hex;
+    return [0, 2, 4].map((i) => parseInt(full.slice(i, i + 2), 16));
+  }
+  const rgb = raw.match(/^rgb\(\s*(\d+)\s*,\s*(\d+)\s*,\s*(\d+)\s*\)$/);
+  if (rgb && rgb.slice(1).every((v) => Number(v) <= 255)) return rgb.slice(1).map(Number);
+  return undefined;
+}
+function luminance(rgb: number[]): number {
+  const channels = rgb.map((v) => {
+    const srgb = v / 255;
+    return srgb <= 0.04045 ? srgb / 12.92 : ((srgb + 0.055) / 1.055) ** 2.4;
+  });
+  return channels[0]! * 0.2126 + channels[1]! * 0.7152 + channels[2]! * 0.0722;
 }
 
-/**
- * Rule: Color Contrast
- *
- * Checks for potential color contrast issues by analyzing inline styles
- * and CSS classes that may indicate low contrast combinations.
- *
- * Note: Full WCAG contrast ratio calculation requires visual rendering.
- * This rule provides heuristic detection based on:
- * - Inline color/background-color styles with similar values
- * - Known problematic color combinations
- * - Text on background images without fallback
- */
+/** Measure explicit, opaque inline pairs; inherited/computed styles remain unmeasured. */
 export const colorContrastRule = defineRule({
   id: 'a11y-color-contrast',
   name: 'Color Contrast',
-  description: 'Checks for potential color contrast issues',
+  description: 'Checks contrast ratios of explicit inline text/background colour pairs',
   category: 'a11y',
   weight: 8,
   run: (context: AuditContext) => {
     const { $ } = context;
-
-    const issues: ContrastIssue[] = [];
-
-    // The checks below read inline styles only. A page coloured entirely from
-    // stylesheets gives them nothing to examine, and a pass would vouch for
-    // contrast nobody measured.
-    const examined = $('[style*="color"], [style*="background-image"]').length;
-    if (examined === 0) {
-      return notMeasured(
-        'a11y-color-contrast',
-        'No inline colours to check; contrast set in stylesheets needs a rendered check'
-      );
-    }
-
-    // Check for text elements with inline styles that may have low contrast
-    $('[style*="color"]').each((_, el) => {
-      const $el = $(el);
-      const style = $el.attr('style') || '';
-
-      // Extract color values
-      const colorMatch = style.match(/(?:^|;)\s*color\s*:\s*([^;]+)/i);
-      const bgMatch = style.match(/background(?:-color)?\s*:\s*([^;]+)/i);
-
-      if (colorMatch && bgMatch) {
-        const color = colorMatch[1].trim().toLowerCase();
-        const bg = bgMatch[1].trim().toLowerCase();
-
-        // Check for obviously problematic combinations
-        if (isLowContrastPair(color, bg)) {
-          const tag = el.tagName?.toLowerCase() || 'element';
-          const id = $el.attr('id');
-          const selector = id ? `${tag}#${id}` : tag;
-
-          issues.push({
-            element: selector,
-            issue: `Potential low contrast: ${color} on ${bg}`,
-          });
-        }
-      }
+    let examined = 0;
+    let unavailable = 0;
+    const issues: Array<{ element: string; ratio: number; required: number }> = [];
+    $('[style]').each((_, el) => {
+      const node = $(el);
+      if (!node.text().trim()) return;
+      const declarations = Object.fromEntries((node.attr('style') ?? '').split(';').map((part) => {
+        const colon = part.indexOf(':');
+        return [part.slice(0, colon).trim().toLowerCase(), part.slice(colon + 1).trim().toLowerCase()];
+      }));
+      if (!declarations.color) return;
+      const foreground = color(declarations.color);
+      const background = color(declarations['background-color'] ?? declarations.background ?? '');
+      if (!foreground || !background || declarations['background-image'] || declarations.opacity) { unavailable++; return; }
+      examined++;
+      const a = luminance(foreground), b = luminance(background);
+      const ratio = (Math.max(a, b) + 0.05) / (Math.min(a, b) + 0.05);
+      const size = declarations['font-size']?.match(/^([\d.]+)(px|pt)$/);
+      const pixels = size ? Number(size[1]) * (size[2] === 'pt' ? 4 / 3 : 1) : 0;
+      const bold = /^(bold|[7-9]00)$/.test(declarations['font-weight'] ?? '');
+      const required = pixels >= 24 || (bold && pixels >= 18.66) ? LARGE_CONTRAST : NORMAL_CONTRAST;
+      if (ratio < required) issues.push({ element: node.attr('id') ? `#${node.attr('id')}` : el.tagName, ratio: Math.round(ratio * 100) / 100, required });
     });
-
-    // Check for light gray text (common issue)
-    $('[style*="color"]').each((_, el) => {
-      const $el = $(el);
-      const style = $el.attr('style') || '';
-      const colorMatch = style.match(/(?:^|;)\s*color\s*:\s*([^;]+)/i);
-
-      if (colorMatch) {
-        const color = colorMatch[1].trim().toLowerCase();
-        if (isLightGray(color)) {
-          const text = $el.text().trim();
-          if (text.length > 0 && text.length < 100) {
-            issues.push({
-              element: `Text: "${text.slice(0, 30)}..."`,
-              issue: `Light gray text (${color}) may have insufficient contrast`,
-            });
-          }
-        }
-      }
-    });
-
-    // Check for text on background images without fallback color
-    $('[style*="background-image"]').each((_, el) => {
-      const $el = $(el);
-      const style = $el.attr('style') || '';
-      const text = $el.text().trim();
-
-      if (text.length > 0 && !style.includes('background-color')) {
-        const tag = el.tagName?.toLowerCase() || 'element';
-        issues.push({
-          element: tag,
-          issue: 'Text on background image without fallback background-color',
-        });
-      }
-    });
-
-    if (issues.length === 0) {
-      return pass('a11y-color-contrast', 'No obvious color contrast issues detected', {
-        note: 'Full WCAG contrast checking requires visual rendering',
-      });
-    }
-
-    return warn('a11y-color-contrast', `Found ${issues.length} potential contrast issue(s)`, {
-      issues: issues.slice(0, 10),
-      totalIssues: issues.length,
-      note: 'These are heuristic detections; verify with a visual contrast checker',
-    });
+    const details = { examined, unavailable, issues: issues.slice(0, 10), note: 'Inline pairs only; stylesheet, inherited and composited colours need rendered measurement' };
+    if (issues.length) return warn('a11y-color-contrast', `${issues.length} inline text colour pair(s) have insufficient contrast`, details);
+    if (!examined || unavailable) return notMeasured('a11y-color-contrast', 'No complete contrast verdict: some or all colours require computed styles', details);
+    return pass('a11y-color-contrast', `All ${examined} examined inline colour pair(s) meet contrast thresholds; stylesheet colours were not measured`, details);
   },
 });
-
-/**
- * Check if two colors are a known low-contrast pair
- */
-function isLowContrastPair(color: string, bg: string): boolean {
-  // Normalize colors
-  const c = normalizeColor(color);
-  const b = normalizeColor(bg);
-
-  // Known problematic pairs
-  const lowContrastPairs = [
-    ['white', 'white'],
-    ['black', 'black'],
-    ['gray', 'gray'],
-    ['lightgray', 'white'],
-    ['silver', 'white'],
-    ['yellow', 'white'],
-    ['cyan', 'white'],
-    ['lime', 'white'],
-    ['darkgray', 'black'],
-    ['navy', 'black'],
-    ['darkblue', 'black'],
-  ];
-
-  for (const [a, b2] of lowContrastPairs) {
-    if ((c.includes(a) && b.includes(b2)) || (c.includes(b2) && b.includes(a))) {
-      return true;
-    }
-  }
-
-  return false;
-}
-
-/**
- * Check if color is a light gray that may have contrast issues
- */
-function isLightGray(color: string): boolean {
-  const c = color.toLowerCase();
-
-  // Named light grays
-  if (['lightgray', 'lightgrey', 'silver', 'gainsboro'].includes(c)) {
-    return true;
-  }
-
-  // Hex light grays (#aaa, #bbb, #ccc, #ddd, #eee)
-  if (/^#[a-f]{3}$/i.test(c) || /^#[a-f]{6}$/i.test(c)) {
-    return true;
-  }
-
-  // RGB light grays
-  const rgbMatch = c.match(/rgb\(\s*(\d+)\s*,\s*(\d+)\s*,\s*(\d+)\s*\)/);
-  if (rgbMatch) {
-    const [, r, g, b] = rgbMatch.map(Number);
-    // Light gray: all components similar and > 150
-    if (Math.abs(r - g) < 20 && Math.abs(g - b) < 20 && r > 150) {
-      return true;
-    }
-  }
-
-  return false;
-}
-
-function normalizeColor(color: string): string {
-  return color.toLowerCase().replace(/\s+/g, '');
-}

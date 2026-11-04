@@ -126,17 +126,17 @@ describe('perf-minify-css — unknown size (ISSUE-001)', () => {
       ])
     );
     expect(result.weight).toBe(0);
-    expect(result.details?.unsizedCount).toBe(1);
+    expect(result.details?.externalUnmeasured).toBe(1);
   });
 
-  it('passes when the only stylesheet is already marked .min', async () => {
+  it('does not assume a .min filename proves minification', async () => {
     const result = await minifyCssRule.run(
       createContext([
         createAsset({ url: 'https://example.com/site.min.css', resourceType: 'stylesheet' }),
       ])
     );
-    expect(result.status).toBe('pass');
-    expect(result.weight).not.toBe(0);
+    expect(result.status).toBe('not-measured');
+    expect(result.weight).toBe(0);
   });
 });
 
@@ -146,10 +146,10 @@ describe('perf-minify-js — unknown size (ISSUE-001)', () => {
       createContext([createAsset({ url: 'https://example.com/bundle.js' })])
     );
     expect(result.weight).toBe(0);
-    expect(result.details?.unsizedCount).toBe(1);
+    expect(result.details?.externalUnmeasured).toBe(1);
   });
 
-  it('keeps the sized suspect and reports the unsized script alongside it', async () => {
+  it('does not classify either body from encoded size', async () => {
     const result = await minifyJsRule.run(
       createContext([
         createAsset({
@@ -159,10 +159,10 @@ describe('perf-minify-js — unknown size (ISSUE-001)', () => {
         createAsset({ url: 'https://example.com/unknown.js' }),
       ])
     );
-    expect(result.status).toBe('warn');
-    expect(result.weight).not.toBe(0);
-    expect(result.message).toContain('big.js');
-    expect(result.message).toContain('content-length');
+    expect(result.status).toBe('not-measured');
+    expect(result.weight).toBe(0);
+    expect(result.details?.externalUnmeasured).toBe(2);
+    expect(result.message).toContain('bodies');
   });
 });
 

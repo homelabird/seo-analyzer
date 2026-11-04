@@ -7,7 +7,7 @@
  * - *Options: Query/filter options for list operations
  */
 
-import type { RuleStatus, AuditRunOptions } from '../types.js';
+import type { AuditResult, RuleStatus, AuditRunOptions } from '../types.js';
 
 // The run options belong to the result, not to its persistence; re-exported so
 // existing storage imports keep working.
@@ -278,7 +278,10 @@ export type AuditSource = 'cli' | 'dashboard' | 'desktop' | 'api';
 /**
  * Audit record - represents a complete SEO audit
  */
+export type AuditResultMetadata = Pick<AuditResult, 'scoreCap' | 'waivedCaps' | 'coverage' | 'page' | 'schemaVersion' | 'measured'>;
+
 export interface DbAudit {
+  result_json?: string | null;
   id: number;
   audit_id: string;
   domain: string;
@@ -307,6 +310,7 @@ export interface DbAudit {
  * Audit with parsed fields
  */
 export interface HydratedAudit {
+  resultMetadata?: AuditResultMetadata;
   id: number;
   auditId: string;
   domain: string;
@@ -335,6 +339,7 @@ export interface HydratedAudit {
  * Audit summary for listing
  */
 export interface AuditSummary {
+  measured?: boolean;
   id: number;
   auditId: string;
   domain: string;
@@ -669,6 +674,7 @@ export interface InsertImageInput {
  * Input for creating an audit
  */
 export interface CreateAuditInput {
+  resultMetadata?: AuditResultMetadata;
   auditId: string;
   domain: string;
   projectName?: string;

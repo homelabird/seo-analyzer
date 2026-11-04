@@ -36,7 +36,7 @@ export function Sidebar({ categories, activeCategory, onCategoryClick }: Sidebar
       <nav className="space-y-0.5">
         {categories.map((cat) => {
           const isActive = activeCategory === cat.categoryId;
-          const color = getScoreColor(cat.score);
+          const color = getScoreColor(cat.measured === false ? null : cat.score);
           const issueCount = cat.failCount + cat.warnCount;
           return (
             <button
@@ -68,7 +68,7 @@ export function Sidebar({ categories, activeCategory, onCategoryClick }: Sidebar
                   className="text-xs font-bold"
                   style={{ color }}
                 >
-                  {Math.round(cat.score)}
+                  {cat.measured === false ? 'N/A' : Math.round(cat.score)}
                 </span>
               </div>
             </button>

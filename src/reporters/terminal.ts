@@ -274,14 +274,14 @@ export function renderTerminalReport(result: AuditResult): void {
   const domain = extractDomain(result.url);
   const pageInfo = result.crawledPages > 1 ? `${result.crawledPages} pages` : '1 page';
   console.log(
-    `${chalk.white(domain)} ${chalk.gray('•')} ${chalk.gray(pageInfo)} ${chalk.gray('•')} ${formatScoreWithGrade(result.overallScore)}`
+    `${chalk.white(domain)} ${chalk.gray('•')} ${chalk.gray(pageInfo)} ${chalk.gray('•')} ${formatScoreWithGrade(result.measured === false ? null : result.overallScore)}`
   );
   console.log(renderSeparator(50));
   console.log();
 
   // Health Score
-  const { grade, color } = getLetterGrade(result.overallScore);
-  console.log(`${chalk.bold('Health Score:')} ${color(`${result.overallScore}/100 (${grade})`)}`);
+  const { grade, color } = getLetterGrade(result.measured === false ? null : result.overallScore);
+  console.log(`${chalk.bold('Health Score:')} ${result.measured === false ? color('N/A (not measured)') : color(`${result.overallScore}/100 (${grade})`)}`);
   // A capped score above category bars in the 90s reads as a bug unless the
   // reason sits directly under the number it explains.
   if (result.scoreCap) {
@@ -299,6 +299,8 @@ export function renderTerminalReport(result: AuditResult): void {
   }
   console.log();
 
+  for (const reason of result.coverage?.unavailableMeasurements ?? []) console.log(chalk.gray(`  Not measured: ${reason}`));
+
   // Category Breakdown
   console.log(chalk.bold('Category Breakdown:'));
   console.log(chalk.gray('-'.repeat(50)));
@@ -309,12 +311,12 @@ export function renderTerminalReport(result: AuditResult): void {
   for (const categoryResult of sortedCategories) {
     const category = getCategoryById(categoryResult.categoryId);
     const categoryName = category?.name ?? categoryResult.categoryId;
-    const scoreColor = getScoreColor(categoryResult.score);
+    const scoreColor = getScoreColor(categoryResult.measured === false ? null : categoryResult.score);
     const bar = renderCompactBar(categoryResult.score);
 
     // Category name and progress bar
     console.log(
-      `${categoryName.padEnd(20)} ${scoreColor(bar)} ${scoreColor(`${categoryResult.score}%`)}`
+      `${categoryName.padEnd(20)} ${scoreColor(bar)} ${scoreColor(categoryResult.measured === false ? 'N/A' : `${categoryResult.score}%`)}`
     );
 
     // Pass/warn/fail counts on second line

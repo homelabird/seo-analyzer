@@ -131,6 +131,7 @@ export function aggregateResult(result: AuditResult, meta: AuditMetaDto): AuditD
     .sort((a, b) => (order.get(a.categoryId) ?? Infinity) - (order.get(b.categoryId) ?? Infinity))
     .map((category) => ({
       categoryId: category.categoryId,
+      measured: category.measured,
       score: category.score,
       passCount: category.passCount,
       warnCount: category.warnCount,

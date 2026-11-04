@@ -1,4 +1,3 @@
-import { sanitizeForOutput } from '../sanitize.js';
 /**
  * Read-side queries over the audits database, shaped for display.
  *
@@ -6,6 +5,8 @@ import { sanitizeForOutput } from '../sanitize.js';
  * point them at any file. Nothing here writes.
  */
 
+import { sanitizeForOutput } from '../sanitize.js';
+import { isNotMeasured } from '../rules/define-rule.js';
 import type { AuditsDatabase } from '../storage/audits-db/index.js';
 import type { AuditQueryOptions, DbAudit, HydratedAudit } from '../storage/types.js';
 import { toAuditSummary } from '../storage/audits-db/audits.js';
@@ -141,6 +142,7 @@ export function getAuditDetail(db: AuditsDatabase, auditId: string): AuditDetail
     const notMeasuredCount = results.reduce((n, r) => n + (r.totalPages - r.measuredPages), 0);
     return {
       categoryId: cat.categoryId,
+      measured: results.some((r) => !isNotMeasured(r)),
       score: cat.score,
       passCount: cat.passCount,
       warnCount: cat.warnCount,
@@ -156,12 +158,14 @@ export function getAuditDetail(db: AuditsDatabase, auditId: string): AuditDetail
   const pages = db.getAuditPages(audit.id);
 
   const result: AuditResult = {
+    ...audit.resultMetadata,
+    run: audit.run ?? undefined,
     url: audit.startUrl,
     overallScore: audit.overallScore,
     categoryResults,
     timestamp: audit.startedAt.toISOString(),
     crawledPages: audit.pagesAudited,
-    coverage: { pages, detail: 'aggregated' },
+    coverage: { ...audit.resultMetadata?.coverage, pages, detail: 'aggregated' },
   };
 
   return sanitizeForOutput({

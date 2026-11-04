@@ -649,6 +649,8 @@ export interface AuditRule {
  * Aggregated results for a category
  */
 export interface CategoryResult {
+  /** False when no applicable rule took a weighted reading; display as N/A. */
+  measured?: boolean;
   /** Category identifier */
   categoryId: string;
   /** Calculated score for this category (0-100) */
@@ -793,6 +795,8 @@ export interface ScoreCap {
 }
 
 export interface AuditResult {
+  /** False when no category could take a scored reading. Numeric score stays backward-compatible. */
+  measured?: boolean;
   /** See {@link AUDIT_SCHEMA_VERSION}. Absent on payloads from 3.5.0 and earlier. */
   schemaVersion?: number;
   /**
@@ -816,7 +820,7 @@ export interface AuditResult {
    * that lowered it, so no surface shows a capped score unexplained.
    *
    * A crawl is capped only by its start page, and only when search engines
-   * cannot index it. Absent on stored audits, which do not persist it yet.
+   * cannot index it. Older stored audits may not carry this explanation.
    */
   scoreCap?: {
     /** The weighted category average the caps overrode */

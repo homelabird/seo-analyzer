@@ -60,7 +60,7 @@ export function AuditList({ audits, loading, linkTo }: AuditListProps) {
                       a single tab stop and cmd-click still opens a new tab. */}
                   <Link
                     to={linkTo(audit.auditId)}
-                    aria-label={`Audit of ${audit.startUrl} on ${formatDate(audit.startedAt)}, score ${Math.round(audit.overallScore)}`}
+                    aria-label={`Audit of ${audit.startUrl} on ${formatDate(audit.startedAt)}, score ${audit.measured === false ? 'N/A' : Math.round(audit.overallScore)}`}
                     className="row-link-target block p-3 focus-visible:outline-2 focus-visible:outline-offset-[-2px] focus-visible:outline-[var(--color-accent)]"
                   >
                     {formatDate(audit.startedAt)}
@@ -72,9 +72,9 @@ export function AuditList({ audits, loading, linkTo }: AuditListProps) {
                 <td className="p-3 text-center">
                   <span
                     className="text-sm font-bold px-2 py-0.5 rounded-full"
-                    style={verdictStyle(audit.overallScore)}
+                    style={verdictStyle(audit.measured === false ? null : audit.overallScore)}
                   >
-                    {Math.round(audit.overallScore)}
+                    {audit.measured === false ? 'N/A' : Math.round(audit.overallScore)}
                   </span>
                 </td>
                 <td className="p-3 text-center" style={{ color: 'var(--color-text-muted)' }}>

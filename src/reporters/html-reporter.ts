@@ -232,7 +232,7 @@ function aggregateIssuesByRule(
  * in the terminal and the dashboard (verdict bucket B) and amber here. The
  * scale lives in `src/verdict.ts` and nowhere else.
  */
-function getScoreColor(score: number): string {
+function getScoreColor(score: number | null): string {
   return verdictStyle(score).color;
 }
 
@@ -241,7 +241,7 @@ function getScoreColor(score: number): string {
  * suffix to `getScoreColor()` — that yields `var(--color-pass)20`, which is
  * dropped silently and leaves the badge with no background at all.
  */
-function getScoreBackground(score: number): string {
+function getScoreBackground(score: number | null): string {
   return verdictStyle(score).backgroundColor;
 }
 
@@ -2143,8 +2143,8 @@ function renderPageSnapshot(page: PageSnapshot | undefined, url: string): string
 
 export function renderHtmlReport(result: AuditResult): string {
   result = sanitizeForOutput(result);
-  const scoreColor = getScoreColor(result.overallScore);
-  const scoreLabel = scoreToVerdict(result.overallScore).label;
+  const scoreColor = getScoreColor(result.measured === false ? null : result.overallScore);
+  const scoreLabel = scoreToVerdict(result.measured === false ? null : result.overallScore).label;
   const timestamp = new Date(result.timestamp).toLocaleString();
   const isPassing = result.overallScore >= 70;
 
@@ -2331,7 +2331,7 @@ export function renderHtmlReport(result: AuditResult): string {
   const categorySectionsHtml = result.categoryResults.map(cat => {
     const category = getCategoryById(cat.categoryId);
     const categoryName = category?.name ?? cat.categoryId;
-    const categoryColor = getScoreColor(cat.score);
+    const categoryColor = getScoreColor(cat.measured === false ? null : cat.score);
 
     // Get aggregated issues for this category
     const aggregatedIssues = aggregatedByCategory.get(cat.categoryId) || [];
@@ -2420,7 +2420,7 @@ export function renderHtmlReport(result: AuditResult): string {
         <div class="category-header">
           <div class="category-title">
             <span class="category-name">${escapeHtml(categoryName)}</span>
-            <span class="category-score" style="background: ${getScoreBackground(cat.score)}; color: ${categoryColor}">${cat.score}/100</span>
+            <span class="category-score" style="background: ${getScoreBackground(cat.measured === false ? null : cat.score)}; color: ${categoryColor}">${cat.measured === false ? 'N/A' : `${cat.score}/100`}</span>
           </div>
           <div class="category-stats">
             <span class="category-stat pass">${cat.passCount} passed</span>
@@ -2511,14 +2511,15 @@ export function renderHtmlReport(result: AuditResult): string {
                     stroke-dashoffset="${dashOffset}"/>
           </svg>
           <div class="score-circle-text">
-            <span class="score-value" style="color: ${scoreColor}">${result.overallScore}</span>
+            <span class="score-value" style="color: ${scoreColor}">${result.measured === false ? 'N/A' : result.overallScore}</span>
             <span class="score-label">${scoreLabel}</span>
           </div>
         </div>
         <div class="score-details">
           <div class="score-status ${isPassing ? 'pass' : 'fail'}">
-            ${isPassing ? '✓ Audit Passed' : '✕ Audit Failed'} (threshold: 70)
+            ${result.measured === false ? 'Not measured' : isPassing ? '✓ Audit Passed (threshold: 70)' : '✕ Audit Failed (threshold: 70)'}
           </div>
+          ${result.coverage?.unavailableMeasurements?.length ? `<div class="score-cap">Measurements unavailable: ${escapeHtml(result.coverage.unavailableMeasurements.join('; '))}</div>` : ''}
           ${result.scoreCap ? `<div class="score-cap">
             Capped from ${result.scoreCap.uncappedScore}, the category average:
             <ul>${result.scoreCap.caps.map((cap) => `<li>${escapeHtml(cap.reason)}</li>`).join('')}</ul>
@@ -2620,14 +2621,14 @@ export function renderHtmlReport(result: AuditResult): string {
           ${result.categoryResults.map(cat => {
             const category = getCategoryById(cat.categoryId);
             const catName = category?.name ?? cat.categoryId;
-            const catColor = getScoreColor(cat.score);
+            const catColor = getScoreColor(cat.measured === false ? null : cat.score);
             return `
             <a href="#category-${cat.categoryId}" class="category-progress-item">
               <span class="category-progress-name">${escapeHtml(catName)}</span>
               <div class="category-progress-bar">
                 <div class="category-progress-fill" style="width: ${cat.score}%; background: ${catColor};"></div>
               </div>
-              <span class="category-progress-value" style="color: ${catColor};">${cat.score}%</span>
+              <span class="category-progress-value" style="color: ${catColor};">${cat.measured === false ? 'N/A' : `${cat.score}%`}</span>
             </a>
             `;
           }).join('')}
