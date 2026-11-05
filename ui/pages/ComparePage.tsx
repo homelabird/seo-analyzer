@@ -115,11 +115,12 @@ export function ComparePage() {
       <RuleChangeList title="Improved" tone="pass" changes={rules.improved} />
       <RuleChangeList title="New in this audit" tone="muted" changes={rules.added} />
       <RuleChangeList title="No longer measured" tone="muted" changes={rules.removed} />
+      <RuleChangeList title="Measured URL coverage changed" tone="muted" changes={rules.coverageChanges ?? []} />
 
       {rules.regressed.length === 0 &&
         rules.improved.length === 0 &&
         rules.added.length === 0 &&
-        rules.removed.length === 0 && (
+        rules.removed.length === 0 && (rules.coverageChanges?.length ?? 0) === 0 && (
           <p className="text-sm text-center py-6" style={{ color: 'var(--color-text-muted)' }}>
             No rule changed status between these two audits.
           </p>
@@ -172,9 +173,18 @@ function RuleChangeList({
               </code>
               <span className="text-xs" style={{ color: 'var(--color-text-muted)' }}>
                 {change.from ?? '—'} → {change.to ?? '—'}
-                {change.totalPages > 1 && ` · ${change.affectedPages} of ${change.totalPages} pages`}
+                {change.totalPages > 1 && ` · ${change.previousAffectedPages ?? '?'} → ${change.affectedPages} affected · ${change.previousMeasuredPages ?? '?'} → ${change.measuredPages ?? change.totalPages} measured`}
               </span>
             </div>
+            {change.coverageChanged && <p className="text-xs">Measured URL coverage changed; only shared measured URLs prove fixes or regressions.</p>}
+            {!!((change.regressedPageCount ?? 0) + (change.improvedPageCount ?? 0)) && (
+              <details className="text-xs mt-1">
+                <summary>{change.regressedPageCount ?? 0} worsened · {change.improvedPageCount ?? 0} improved ({change.newIssuePageCount ?? 0} newly affected · {change.resolvedIssuePageCount ?? 0} resolved)</summary>
+                {(change.regressedPages ?? []).map((url) => <p key={`new:${url}`}>Worsened: {url}</p>)}
+                {(change.improvedPages ?? []).map((url) => <p key={`resolved:${url}`}>Improved: {url}</p>)}
+                {((change.regressedPageCount ?? 0) > (change.regressedPages?.length ?? 0) || (change.improvedPageCount ?? 0) > (change.improvedPages?.length ?? 0)) && <p>Showing up to 50 URLs per change type.</p>}
+              </details>
+            )}
             {change.message && (
               <p className="text-xs mt-0.5" style={{ color: 'var(--color-text-secondary)' }}>
                 {change.message}

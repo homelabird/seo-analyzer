@@ -1,5 +1,6 @@
 import type { AuditContext } from '../../types.js';
 import { defineRule, pass, warn, fail } from '../define-rule.js';
+import { documentBase, resolveDocumentUrl } from '../../analysis/urls.js';
 
 /**
  * Validates if a string is a valid absolute URL
@@ -45,6 +46,10 @@ export const canonicalValidRule = defineRule({
     }
 
     if (!isValidAbsoluteUrl(href)) {
+      const resolved = resolveDocumentUrl(href, context.documentBaseUrl ?? documentBase($, context.url));
+      if (resolved && !/^[a-z][a-z0-9+.-]*:/i.test(href)) {
+        return warn('core-canonical-valid', 'Canonical uses a supported relative URL; an absolute URL is recommended', { canonicalUrl: href, resolvedCanonical: resolved, isAbsolute: false });
+      }
       return fail(
         'core-canonical-valid',
         `Canonical URL is not a valid absolute URL: "${href}"`,

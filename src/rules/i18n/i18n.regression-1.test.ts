@@ -63,8 +63,9 @@ describe('i18n-hreflang without hreflang annotations (ISSUE-010)', () => {
       links: links('/de/docs/Web/HTML'),
     });
     const result = await hreflangRule.run(context);
-    expect(result.status).toBe('pass');
-    expect(result.message).toMatch(/Link header/);
+    // A header declaration is validated like HTML: it still needs a self link.
+    expect(result.status).toBe('warn');
+    expect(result.details?.issues).toEqual(expect.arrayContaining([expect.objectContaining({ issue: 'Missing self-referencing hreflang for current page' })]));
   });
 
   it('i18n-hreflang-return-links does not claim a single-language site either', async () => {

@@ -1,5 +1,6 @@
 import { safeFetch, readResponseBytes } from './network.js';
 import { gunzipSync } from 'node:zlib';
+import { load } from 'cheerio';
 import { getUserAgent } from './user-agent.js';
 import { rethrowIfAborted, throwIfAborted } from '../errors.js';
 import type { SitemapDocument, SitemapEntry, SitemapFetchResult } from '../types.js';
@@ -103,6 +104,14 @@ export function parseSitemapEntries(xml: string): SitemapEntry[] {
     if (!loc) continue;
 
     const entry: SitemapEntry = { loc };
+    const $ = /<(?:(?:[\w-]+):)?link\b/i.test(block) ? load(block, { xmlMode: true }) : undefined;
+    const alternates: NonNullable<SitemapEntry['alternates']> = [];
+    $?.('*').each((_, el) => {
+      if (!('name' in el) || !/(?:^|:)link$/i.test(el.name)) return;
+      if (!($(el).attr('rel') ?? '').toLowerCase().split(/\s+/).includes('alternate') || $(el).attr('hreflang') === undefined) return;
+      alternates.push({ hreflang: $(el).attr('hreflang') ?? '', href: $(el).attr('href') ?? '' });
+    });
+    if (alternates.length) entry.alternates = alternates;
     const lastmod = tagText(block, 'lastmod');
     if (lastmod) entry.lastmod = lastmod;
     const changefreq = tagText(block, 'changefreq');

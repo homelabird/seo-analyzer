@@ -9,6 +9,19 @@ import type { HydratedAuditResult, RuleResultStatus } from '../types.js';
 
 /** A rule whose worst status moved, or that appeared or disappeared */
 export interface RuleChange {
+  regressedPages?: string[];
+  improvedPages?: string[];
+  regressedPageCount?: number;
+  improvedPageCount?: number;
+  previousAffectedPages?: number;
+  previousMeasuredPages?: number;
+  measuredPages?: number;
+  newIssuePages?: string[];
+  resolvedIssuePages?: string[];
+  newIssuePageCount?: number;
+  resolvedIssuePageCount?: number;
+  /** True when counts came from different measured page inventories. */
+  coverageChanged?: boolean;
   ruleId: string;
   ruleName: string;
   categoryId: string;
@@ -25,6 +38,8 @@ export interface RuleChange {
 }
 
 export interface RuleDiff {
+  /** Inventory changes alone do not prove a regression or a fix. */
+  coverageChanges?: RuleChange[];
   /** Worse now than before (pass → warn, pass → fail, warn → fail) */
   regressed: RuleChange[];
   /** Better now than before */
@@ -38,6 +53,10 @@ export interface RuleDiff {
 const RANK: Record<RuleResultStatus, number> = { pass: 0, warn: 1, fail: 2, 'not-measured': -1 };
 
 interface RuleRollup {
+  statusByUrl: Map<string, RuleResultStatus>;
+  measuredPages: number;
+  measuredUrls: Set<string>;
+  affectedUrls: Set<string>;
   ruleId: string;
   ruleName: string;
   categoryId: string;
@@ -50,7 +69,7 @@ interface RuleRollup {
 
 /** Rows written before 3.4.0 have no weight and were always measured */
 function isMeasured(row: HydratedAuditResult): boolean {
-  return row.weight === null || row.weight !== 0;
+  return row.status !== 'not-measured' && row.weight !== 0;
 }
 
 /**
@@ -63,6 +82,7 @@ export function rollupByRule(rows: HydratedAuditResult[]): Map<string, RuleRollu
     let entry = map.get(row.ruleId);
     if (!entry) {
       entry = {
+        statusByUrl: new Map(),
         ruleId: row.ruleId,
         ruleName: row.ruleName,
         categoryId: row.categoryId,
@@ -70,11 +90,17 @@ export function rollupByRule(rows: HydratedAuditResult[]): Map<string, RuleRollu
         message: '',
         affectedPages: 0,
         totalPages: 0,
+        measuredPages: 0, measuredUrls: new Set(), affectedUrls: new Set(),
       };
       map.set(row.ruleId, entry);
     }
     entry.totalPages++;
     if (!isMeasured(row)) continue;
+    entry.measuredPages++;
+    entry.measuredUrls.add(row.pageUrl);
+    const previousStatus = entry.statusByUrl.get(row.pageUrl);
+    if (previousStatus === undefined || RANK[row.status] > RANK[previousStatus]) entry.statusByUrl.set(row.pageUrl, row.status);
+    if (row.status !== 'pass') entry.affectedUrls.add(row.pageUrl);
     if (row.status !== 'pass') entry.affectedPages++;
     if (entry.status === null || RANK[row.status] > RANK[entry.status]) {
       entry.status = row.status;
@@ -98,12 +124,15 @@ export function diffRules(previous: HydratedAuditResult[], current: HydratedAudi
   const before = rollupByRule(previous);
   const after = rollupByRule(current);
 
-  const diff: RuleDiff = { regressed: [], improved: [], added: [], removed: [] };
+  const diff: RuleDiff = { regressed: [], improved: [], added: [], removed: [], coverageChanges: [] };
 
   for (const now of after.values()) {
     if (now.status === null) continue;
     const then = before.get(now.ruleId);
     const change: RuleChange = {
+      previousAffectedPages: then?.affectedPages ?? 0,
+      previousMeasuredPages: then?.measuredPages ?? 0,
+      measuredPages: now.measuredPages,
       ruleId: now.ruleId,
       ruleName: now.ruleName,
       categoryId: now.categoryId,
@@ -113,12 +142,27 @@ export function diffRules(previous: HydratedAuditResult[], current: HydratedAudi
       affectedPages: now.affectedPages,
       totalPages: now.totalPages,
     };
+    const newPages = [...now.affectedUrls].filter((url) => then?.measuredUrls.has(url) && !then.affectedUrls.has(url)).sort();
+    const resolvedPages = [...(then?.affectedUrls ?? [])].filter((url) => now.measuredUrls.has(url) && !now.affectedUrls.has(url)).sort();
+    change.newIssuePages = newPages.slice(0, 50);
+    change.resolvedIssuePages = resolvedPages.slice(0, 50);
+    change.newIssuePageCount = newPages.length;
+    change.resolvedIssuePageCount = resolvedPages.length;
+    change.coverageChanged = then !== undefined && (then.measuredUrls.size !== now.measuredUrls.size || [...now.measuredUrls].some((url) => !then.measuredUrls.has(url)));
+    const regressedPages = [...now.statusByUrl].filter(([url, status]) => then?.statusByUrl.has(url) && RANK[status] > RANK[then.statusByUrl.get(url)!]).map(([url]) => url).sort();
+    const improvedPages = [...now.statusByUrl].filter(([url, status]) => then?.statusByUrl.has(url) && RANK[status] < RANK[then.statusByUrl.get(url)!]).map(([url]) => url).sort();
+    change.regressedPages = regressedPages.slice(0, 50);
+    change.improvedPages = improvedPages.slice(0, 50);
+    change.regressedPageCount = regressedPages.length;
+    change.improvedPageCount = improvedPages.length;
+    if (change.coverageChanged) diff.coverageChanges!.push(change);
     if (!then || then.status === null) {
       diff.added.push(change);
-    } else if (RANK[now.status] > RANK[then.status]) {
-      diff.regressed.push(change);
-    } else if (RANK[now.status] < RANK[then.status]) {
-      diff.improved.push({ ...change, message: then.message });
+    } else {
+      // Only shared measured URLs prove a regression or a fix. A newly
+      // discovered URL, or a URL absent now, is not evidence of a change.
+      if (regressedPages.length) diff.regressed.push(change);
+      if (improvedPages.length) diff.improved.push({ ...change, message: then.message });
     }
   }
 

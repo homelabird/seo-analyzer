@@ -4,7 +4,7 @@ import { readFileSync } from 'node:fs';
 import { createRequire } from 'node:module';
 import { dirname, join } from 'node:path';
 import { chromium, type Browser, type Page, type Request, type Response } from 'playwright';
-import type { AssetInfo, CoreWebVitals, FailedRequestInfo, RenderDiagnostics } from '../types.js';
+import type { AssetInfo, CoreWebVitals, FailedRequestInfo, RenderDiagnostics, RenderQuality } from '../types.js';
 import { getUserAgent, MOBILE_USER_AGENT } from './user-agent.js';
 import { rethrowIfAborted, throwIfAborted } from '../errors.js';
 
@@ -110,6 +110,7 @@ export async function closeBrowser(): Promise<void> {
  * Result of fetching a page with Playwright
  */
 export interface PlaywrightFetchResult {
+  renderQuality?: RenderQuality;
   httpProtocol?: string;
   /** Raw HTML content after JS execution */
   html: string;
@@ -389,6 +390,46 @@ export interface RenderOptions {
  * captured sooner; this is the worst case, not the usual one.
  */
 const SETTLE_TIMEOUT_MS = 1000;
+const CONTENT_READY_TIMEOUT_MS = 5000;
+
+/** Wait longer for sparse scripted shells; network quiet alone misses delayed hydration. */
+async function waitForContentReady(page: Page, budgetMs: number): Promise<RenderQuality> {
+  const started = performance.now();
+  const sample = () => page.evaluate(() => {
+    const body = document.body?.cloneNode(true) as HTMLElement | undefined;
+    body?.querySelectorAll('script,style,noscript,nav,header,footer,aside,[hidden],[aria-hidden="true"]').forEach((el) => el.remove());
+    const characters = (body?.textContent ?? '').replace(/\s+/g, ' ').trim().length;
+    const media = !!body?.querySelector('img[src],video');
+    const scripted = !!document.querySelector('script[src],script:not([type]),script[type="module"],script[type="text/javascript"]');
+    const shell = characters === 0 || !!document.querySelector('#root,#app,#__next,#__nuxt,#__svelte,[data-reactroot],[aria-busy="true"],[role="progressbar"]') || /^(?:loading|로딩|불러오는 중)[.\s…]*$/i.test(body?.textContent?.trim() ?? '');
+    return { characters, needsContent: scripted && shell && characters < 100 && !media };
+  });
+  let state = await sample();
+  const timeout = Math.max(1, Math.min(CONTENT_READY_TIMEOUT_MS, budgetMs));
+  if (state.needsContent) {
+    await page.waitForFunction(() => {
+      const body = document.body?.cloneNode(true) as HTMLElement | undefined;
+      body?.querySelectorAll('script,style,noscript,nav,header,footer,aside,[hidden],[aria-hidden="true"]').forEach((el) => el.remove());
+      return (body?.textContent ?? '').replace(/\s+/g, ' ').trim().length >= 100 || !!body?.querySelector('img[src],video');
+    }, undefined, { timeout, polling: 100 }).catch(() => {});
+    state = await sample();
+  }
+  // Let a newly hydrated shell settle briefly. Continuously mutating pages
+  // still have a fixed ceiling; this is an observation, not an app-ready API.
+  if (!state.needsContent && performance.now() - started < timeout) {
+    await page.evaluate((remaining) => new Promise<void>((resolve) => {
+      let quiet: ReturnType<typeof setTimeout>;
+      const finish = () => { observer.disconnect(); clearTimeout(quiet); clearTimeout(ceiling); resolve(); };
+      const observer = new MutationObserver(() => { clearTimeout(quiet); quiet = setTimeout(finish, 300); });
+      const ceiling = setTimeout(finish, Math.min(1000, remaining));
+      quiet = setTimeout(finish, 300);
+      observer.observe(document.documentElement, { childList: true, subtree: true, characterData: true, attributes: true });
+    }), Math.max(1, timeout - (performance.now() - started)));
+    state = await sample();
+  }
+  return { state: state.needsContent ? 'incomplete' : 'ready', waitedMs: Math.round(performance.now() - started), contentCharacters: state.characters,
+    reason: state.needsContent ? 'Scripted page remained sparse after the bounded content-readiness wait' : 'Content observed after load/network settling; sparse scripted shells received an additional readiness wait' };
+}
 
 /**
  * A representative modern phone. Chosen over playwright's device registry so
@@ -573,6 +614,7 @@ export async function fetchPageWithPlaywright(
     // early is captured early, while one that never goes quiet (polling,
     // beacons, websockets) costs the same flat wait it always did.
     await page.waitForLoadState('networkidle', { timeout: SETTLE_TIMEOUT_MS }).catch(() => {});
+    const renderQuality = await waitForContentReady(page, timeout - (performance.now() - startTime));
 
     if (proxy.blockedCount() > 0) throw new NetworkPolicyError('browser subresources');
 
@@ -592,6 +634,7 @@ export async function fetchPageWithPlaywright(
     }
 
     return {
+      renderQuality,
       html,
       httpProtocol: await page.evaluate(() => (performance.getEntriesByType('navigation')[0] as PerformanceNavigationTiming | undefined)?.nextHopProtocol),
       statusCode: response?.status() ?? 0,

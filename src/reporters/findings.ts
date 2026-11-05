@@ -1,3 +1,4 @@
+import { summarizeRules, readAssessment } from '../analysis/issue-summary.js';
 /**
  * One finding per problem, not one per page it appears on.
  *
@@ -10,9 +11,8 @@
  * A stored audit arrives already aggregated — one row per rule with page counts
  * — so grouping it is a no-op, and the same code serves both shapes.
  *
- * The terminal reporter has its own copy of this grouping and the HTML reporter
- * a third; both predate this module and neither has been migrated. New callers
- * should use this one.
+ * Terminal, markdown and LLM reports use these detailed findings; overview
+ * surfaces share the measured denominators through summarizeRules().
  */
 
 import type { AuditResult, RuleResult, RuleStatus } from '../types.js';
@@ -38,6 +38,9 @@ export interface Finding {
   /** How many pages the rule could be measured on */
   measuredPages: number;
   priority: number;
+  confidence?: RuleResult['confidence'];
+  severity?: RuleResult['severity'];
+  evidence?: RuleResult['evidence'];
 }
 
 /** A stored audit arrives already ranked server-side; a live one does not. */
@@ -91,6 +94,7 @@ function statusOf(result: RuleResult): RuleStatus {
  */
 export function collectFindings(result: AuditResult): Finding[] {
   const byKey = new Map<string, Grouping>();
+  const totals = new Map(summarizeRules(result.categoryResults).map((summary) => [`${summary.categoryId}:${summary.ruleId}`, summary]));
 
   for (const category of result.categoryResults) {
     const definition = getCategoryById(category.categoryId);
@@ -107,6 +111,7 @@ export function collectFindings(result: AuditResult): Finding[] {
       let group = byKey.get(key);
       if (!group) {
         const finding: Finding = {
+          ...readAssessment(ruleResult),
           ruleId: ruleResult.ruleId,
           ruleName: summary.ruleName ?? getRuleById(ruleResult.ruleId)?.name ?? ruleResult.ruleId,
           categoryId: category.categoryId,
@@ -118,7 +123,7 @@ export function collectFindings(result: AuditResult): Finding[] {
           // A stored row already knows how many pages it affected across the
           // whole crawl; a live row speaks only for its own page.
           pageCount: summary.affectedPages ?? 0,
-          measuredPages: summary.measuredPages ?? 0,
+          measuredPages: totals.get(`${category.categoryId}:${ruleResult.ruleId}`)?.measuredPages ?? 0,
           priority: 0,
         };
         group = { finding, pages: new Set(), storedPriority: summary.priority };
@@ -131,7 +136,6 @@ export function collectFindings(result: AuditResult): Finding[] {
         finding.pages.push(page);
       }
       if (summary.affectedPages === undefined) finding.pageCount++;
-      if (summary.measuredPages === undefined) finding.measuredPages++;
     }
   }
 

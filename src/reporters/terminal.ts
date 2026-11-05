@@ -10,9 +10,7 @@ import {
   renderSeparator,
 } from './banner.js';
 import { isNotMeasured } from '../rules/define-rule.js';
-import { rulePriority } from '../rules/priority.js';
-import { normalizeMessage } from './findings.js';
-import { getRuleById } from '../rules/registry.js';
+import { collectFindings } from './findings.js';
 
 /**
  * Grouped issue for display
@@ -30,6 +28,7 @@ interface GroupedIssue {
   priority: number;
   /** Pages the rule could be measured on, for the priority share */
   measuredPages: number;
+  pageCount: number;
 }
 
 /**
@@ -46,174 +45,26 @@ interface CategoryIssues {
 }
 
 /**
- * The name to show for a rule.
- *
- * Rules declare a `name` when they are defined ("Page Depth", "About Page
- * Link"); the registry is the place to ask for it. Titleizing the id instead
- * produced labels like "Links Depth" and "Eeat About Page".
- *
- * Falls back to the titleized id for results read back from storage whose rule
- * is no longer registered.
- *
- * @param ruleId - The rule identifier from the result
- * @returns The registered rule name, or a readable form of the id
- */
-function displayNameFor(ruleId: string): string {
-  const registered = getRuleById(ruleId);
-  if (registered) {
-    return registered.name;
-  }
-  return ruleId
-    .split('-')
-    .map((w) => w.charAt(0).toUpperCase() + w.slice(1))
-    .join(' ');
-}
-
-/**
- * Extract page URL from rule result details
- */
-function getPageUrl(result: RuleResult): string | null {
-  if (result.details?.pageUrl) {
-    return String(result.details.pageUrl);
-  }
-  if (result.details?.url) {
-    return String(result.details.url);
-  }
-  return null;
-}
-
-
-/**
  * Group issues by category, rule, and message
  */
 function groupIssuesByCategory(result: AuditResult): CategoryIssues[] {
   const categoryMap = new Map<string, CategoryIssues>();
-  // `${categoryId}:${ruleId}:${normalizedMessage}` -> the group, so a group is
-  // found in constant time instead of by re-normalising every candidate.
-  const groupsByKey = new Map<string, GroupedIssue>();
-
-  for (const categoryResult of result.categoryResults) {
-    const category = getCategoryById(categoryResult.categoryId);
-    const categoryName = category?.name ?? categoryResult.categoryId;
-
-    for (const ruleResult of categoryResult.results) {
-      if (ruleResult.status === 'pass') continue;
-
-      // Get or create category entry
-      if (!categoryMap.has(categoryResult.categoryId)) {
-        categoryMap.set(categoryResult.categoryId, {
-          categoryId: categoryResult.categoryId,
-          categoryName,
-          errorCount: 0,
-          warningCount: 0,
-          notMeasuredCount: 0,
-          issues: [],
-        });
-      }
-
-      const categoryIssues = categoryMap.get(categoryResult.categoryId)!;
-
-      // Update counts
-      if (ruleResult.status === 'fail') {
-        categoryIssues.errorCount++;
-      } else if (isNotMeasured(ruleResult)) {
-        categoryIssues.notMeasuredCount++;
-      } else {
-        categoryIssues.warningCount++;
-      }
-
-      // Find existing issue group or create new one.
-      //
-      // Keyed through a Map rather than a linear `find` that re-normalised
-      // every candidate message on every comparison: that was O(n*m) with
-      // eight regex replaces per step — invisible on an 8-page audit, roughly
-      // 10^8 regex applications on a 1,000-page crawl.
-      const groupKey = `${categoryResult.categoryId}:${ruleResult.ruleId}:${normalizeMessage(ruleResult.message)}`;
-
-      let existingIssue = groupsByKey.get(groupKey);
-
-      if (!existingIssue) {
-        existingIssue = {
-          ruleId: ruleResult.ruleId,
-          ruleName: displayNameFor(ruleResult.ruleId),
-          status: ruleResult.status,
-          message: ruleResult.message,
-          weight: ruleResult.weight,
-          pages: [],
-          details: [],
-          priority: 0,
-          measuredPages: 0,
-        };
-        categoryIssues.issues.push(existingIssue);
-        groupsByKey.set(groupKey, existingIssue);
-      }
-
-      // Add page URL if available
-      const pageUrl = getPageUrl(ruleResult);
-      if (pageUrl && !existingIssue.pages.includes(pageUrl)) {
-        existingIssue.pages.push(pageUrl);
-      }
-
-      if (!isNotMeasured(ruleResult)) existingIssue.measuredPages++;
-
-      // Collect non-URL details
-      if (ruleResult.details) {
-        for (const [key, value] of Object.entries(ruleResult.details)) {
-          if (key === 'pageUrl' || key === 'url') continue;
-          const strValue = typeof value === 'object'
-            ? JSON.stringify(value)
-            : String(value);
-          // Only add if not already present
-          if (!existingIssue.details.some(d => d.key === key && d.value === strValue)) {
-            existingIssue.details.push({ key, value: strValue });
-          }
-        }
-      }
+  for (const finding of collectFindings(result)) {
+    let category = categoryMap.get(finding.categoryId);
+    if (!category) {
+      category = { categoryId: finding.categoryId, categoryName: finding.categoryName, errorCount: 0, warningCount: 0, notMeasuredCount: 0, issues: [] };
+      categoryMap.set(finding.categoryId, category);
     }
+    if (finding.status === 'fail') category.errorCount++;
+    else if (finding.status === 'warn') category.warningCount++;
+    else category.notMeasuredCount++;
+    category.issues.push({
+      ...finding,
+      details: Object.entries(finding.details ?? {}).filter(([key]) => key !== 'pageUrl' && key !== 'url')
+        .map(([key, value]) => ({ key, value: typeof value === 'object' ? JSON.stringify(value) : String(value) })),
+    });
   }
-
-  // Sort categories by error count (most errors first)
-  const categories = Array.from(categoryMap.values());
-  categories.sort((a, b) => {
-    // Sort by errors first, then warnings
-    if (b.errorCount !== a.errorCount) return b.errorCount - a.errorCount;
-    return b.warningCount - a.warningCount;
-  });
-
-  // Rank within each category. The categories are ordered by how much is wrong
-  // in them; inside one, issues were left in the order their rules happened to
-  // register, so a weight-1 warning could print above a weight-25 one. This is
-  // the same ranking the HTML, markdown and LLM reports use, so every surface
-  // answers "what first?" the same way.
-  for (const category of categories) {
-    for (const issue of category.issues) {
-      issue.priority = rulePriority({
-        ruleId: issue.ruleId,
-        categoryId: category.categoryId,
-        status: isNotMeasured(issue) ? 'not-measured' : issue.status,
-        affectedPages: Math.max(issue.pages.length, 1),
-        measuredPages: Math.max(issue.measuredPages, 1),
-      });
-    }
-    const severity = (i: GroupedIssue): number =>
-      i.status === 'fail' ? 0 : isNotMeasured(i) ? 2 : 1;
-    category.issues.sort(
-      (a, b) =>
-        severity(a) - severity(b) ||
-        b.priority - a.priority ||
-        b.pages.length - a.pages.length ||
-        a.ruleId.localeCompare(b.ruleId)
-    );
-  }
-
-  // Sort issues within each category: errors first, then warnings
-  for (const cat of categories) {
-    // Failures first, then real warnings, then checks that took no reading —
-    // the unmeasured ones are the least actionable, so they sink to the bottom.
-    const rank = (i: GroupedIssue): number =>
-      i.status === 'fail' ? 0 : isNotMeasured(i) ? 2 : 1;
-    cat.issues.sort((a, b) => rank(a) - rank(b));
-  }
+  const categories = [...categoryMap.values()].sort((a, b) => b.errorCount - a.errorCount || b.warningCount - a.warningCount);
 
   return categories;
 }
@@ -394,7 +245,7 @@ export function renderTerminalReport(result: AuditResult): void {
           : isNotMeasured(issue)
             ? chalk.gray('–')
             : chalk.yellow('⚠');
-        const pageCount = issue.pages.length > 1 ? ` (${issue.pages.length} pages)` : '';
+        const pageCount = issue.pageCount > 1 ? ` (${issue.pageCount} pages)` : '';
         console.log(`    ${icon} ${issue.ruleId}: ${issue.message}${chalk.gray(pageCount)}`);
 
         // Show affected pages

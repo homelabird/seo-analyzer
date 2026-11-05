@@ -11,11 +11,12 @@
 // that text, CSS and site navigation, and flagged 5 of 6 crawled pages as
 // near-duplicates of each other (similarity 0.68-0.84; 0.006-0.052 on their
 // main content).
-import { describe, it, expect, beforeEach } from 'vitest';
+import { describe, it, expect } from 'vitest';
 import { createTestContext } from '../test-context.js';
 import { bodyText } from './utils/visible-text.js';
 import { textHtmlRatioRule } from './text-html-ratio.js';
-import { duplicateNearRule, resetNearDuplicateRegistry } from './duplicate-near.js';
+import { duplicateNearRule } from './duplicate-near.js';
+import { prepareDuplicateComparisons } from '../../analysis/content-duplicates.js';
 import { articleLinksRule } from './article-links.js';
 import type { SiteContext } from '../../types.js';
 
@@ -34,7 +35,6 @@ function page(main: string): string {
 }
 
 describe('page text excludes code that never renders (ISSUE-006)', () => {
-  beforeEach(() => resetNearDuplicateRegistry());
 
   it('bodyText drops script, style, noscript and inert templates, and keeps shadow-root text', () => {
     const html = `<html><body><p>Visible</p>
@@ -54,15 +54,17 @@ describe('page text excludes code that never renders (ISSUE-006)', () => {
   it('content-duplicate-near compares main content, not shared navigation and CSS', async () => {
     const first = page('Elements are the building blocks of documents and each one has a purpose described here in detail.');
     const second = page('Attributes adjust how elements behave, and global attributes apply to every element in the language.');
-    await duplicateNearRule.run(createTestContext(first, { url: 'https://example.com/a', site }));
-    const result = await duplicateNearRule.run(createTestContext(second, { url: 'https://example.com/b', site }));
+    const pages = [createTestContext(first, { url: 'https://example.com/a', site }), createTestContext(second, { url: 'https://example.com/b', site })];
+    prepareDuplicateComparisons(pages);
+    const result = await duplicateNearRule.run(pages[1]);
     expect(result.status).toBe('pass');
   });
 
   it('content-duplicate-near still flags pages whose main content is the same', async () => {
     const copy = 'This exact paragraph is published twice on the site with the same wording in both places so it is a duplicate of itself.';
-    await duplicateNearRule.run(createTestContext(page(copy), { url: 'https://example.com/a', site }));
-    const result = await duplicateNearRule.run(createTestContext(page(copy), { url: 'https://example.com/b', site }));
+    const pages = [createTestContext(page(copy), { url: 'https://example.com/a', site }), createTestContext(page(copy), { url: 'https://example.com/b', site })];
+    prepareDuplicateComparisons(pages);
+    const result = await duplicateNearRule.run(pages[1]);
     expect(result.status).toBe('fail');
   });
 });

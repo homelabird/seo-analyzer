@@ -20,6 +20,8 @@ import { randomBytes } from 'node:crypto';
 import { scoreToVerdict } from '../verdict.js';
 import { isNotMeasured } from '../rules/define-rule.js';
 import { collectFindings } from './findings.js';
+import type { Finding } from './findings.js';
+import { summarizeCounts } from '../analysis/issue-summary.js';
 import { AUDIT_SCHEMA_VERSION } from '../types.js';
 import type { AuditResult } from '../types.js';
 import { getFixSuggestion } from './fix-suggestions.js';
@@ -31,8 +33,8 @@ import { getFixSuggestion } from './fix-suggestions.js';
 /**
  * Map rule status to severity
  */
-function getSeverity(status: string): string {
-  return status === 'fail' ? 'critical' : 'warning';
+function getSeverity(finding: Finding): string {
+  return finding.severity ?? (finding.confidence === 'heuristic' ? 'review' : finding.status === 'fail' ? 'error' : 'warning');
 }
 
 /**
@@ -112,13 +114,15 @@ function formatDetails(details: Record<string, unknown>): string {
   const entries = Object.entries(details)
     .map(([k, v]) => {
       const value = typeof v === 'object' ? JSON.stringify(v) : String(v);
-      return `${k}=${truncate(value, 50)}`;
+      return `${k}=${value.length > 2000 ? value.slice(0, 2000) + '[value truncated; full evidence in JSON]' : value}`;
     })
     .join(', ');
-  return truncate(entries, 200);
+  return entries.length > 16000 ? entries.slice(0, 16000) + '[details truncated; full evidence in JSON]' : entries;
 }
 
 interface IssueData {
+  confidence?: Finding['confidence'];
+  evidence?: Finding['evidence'];
   severity: string;
   rule: string;
   cat: string;
@@ -182,19 +186,14 @@ export function renderLlmReport(result: AuditResult, prettyPrint = false): strin
   );
 
   // Summary counts
-  const totalPassed = result.categoryResults.reduce((sum, cat) => sum + cat.passCount, 0);
-  const totalWarnings = result.categoryResults.reduce((sum, cat) => sum + cat.warnCount, 0);
-  const totalFailures = result.categoryResults.reduce((sum, cat) => sum + cat.failCount, 0);
+  const { rules, evaluations } = summarizeCounts(result.categoryResults);
   // `notMeasured` completes the accounting: without it the three counts fall
   // short of the rule total, and a model reading this report has no way to see
   // that the shortfall is checks that never ran rather than checks that passed.
-  const totalNotMeasured = result.categoryResults.reduce(
-    (sum, cat) => sum + (cat.notMeasuredCount ?? 0),
-    0
-  );
   lines.push(
-    `${t1}<summary passed="${totalPassed}" warnings="${totalWarnings}" failures="${totalFailures}" notMeasured="${totalNotMeasured}"/>${nl}`
+    `${t1}<summary unit="page-evaluations" passed="${evaluations.pass}" warnings="${evaluations.warn}" failures="${evaluations.fail}" notMeasured="${evaluations.notMeasured}"/>${nl}`
   );
+  lines.push(`${t1}<rule-summary total="${rules.total}" passed="${rules.pass}" warnings="${rules.warn}" failures="${rules.fail}" notMeasured="${rules.notMeasured}"/>${nl}`);
 
   // A model reading score="20" beside categories in the 90s would go looking
   // for an arithmetic error. The cap says there is none, and why.
@@ -255,7 +254,9 @@ export function renderLlmReport(result: AuditResult, prettyPrint = false): strin
   // list. Cap it, and say plainly how much was left out.
   const omitted = Math.max(0, ranked.length - MAX_ISSUES);
   const issues: IssueData[] = ranked.slice(0, MAX_ISSUES).map((f) => ({
-    severity: getSeverity(f.status === 'fail' ? 'fail' : 'warn'),
+    severity: getSeverity(f),
+    confidence: f.confidence,
+    evidence: f.evidence,
     rule: f.ruleId,
     cat: f.categoryId,
     msg: f.message,
@@ -280,7 +281,7 @@ export function renderLlmReport(result: AuditResult, prettyPrint = false): strin
           ? ` pages="${issue.pageCount}" of="${issue.measuredPages}"`
           : '';
       lines.push(
-        `${t2}<issue severity="${issue.severity}" rule="${issue.rule}" cat="${issue.cat}"${scope}>${nl}`
+        `${t2}<issue severity="${issue.severity}"${issue.confidence ? ` confidence="${issue.confidence}"` : ''} rule="${issue.rule}" cat="${issue.cat}"${scope}>${nl}`
       );
       if (issue.pages.length > 0) {
         // URLs are the audit's own, not site-authored text, so they are plain.
@@ -289,6 +290,7 @@ export function renderLlmReport(result: AuditResult, prettyPrint = false): strin
         );
       }
       lines.push(`${t3}<msg>${wrapUntrusted(issue.msg, nonce)}</msg>${nl}`);
+      if (issue.evidence) lines.push(`${t3}<evidence>${wrapUntrusted(JSON.stringify(issue.evidence), nonce)}</evidence>${nl}`);
 
       const fix = getFixSuggestion(issue.rule);
       lines.push(`${t3}<fix>${escapeXml(fix)}</fix>${nl}`);

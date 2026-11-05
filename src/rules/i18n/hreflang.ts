@@ -1,12 +1,7 @@
 import type { AuditContext } from '../../types.js';
 import { defineRule, pass, warn, fail } from '../define-rule.js';
-
-interface HreflangTag {
-  /** Language/region code */
-  hreflang: string;
-  /** Target URL */
-  href: string;
-}
+import { readHreflang, validHreflang } from '../../analysis/hreflang.js';
+import { resolveDocumentUrl } from '../../analysis/urls.js';
 
 interface HreflangIssue {
   /** Issue description */
@@ -78,28 +73,25 @@ export const hreflangRule = defineRule({
   category: 'i18n',
   weight: 10,
   run: (context: AuditContext) => {
-    const { $, url } = context;
+    const { url } = context;
     const issues: HreflangIssue[] = [];
-    const hreflangTags: HreflangTag[] = [];
-
-    // Collect hreflang from link elements
-    $('link[rel="alternate"][hreflang]').each((_, el) => {
-      const $el = $(el);
-      const hreflang = $el.attr('hreflang') || '';
-      const href = $el.attr('href') || '';
-
-      hreflangTags.push({ hreflang, href });
-    });
+    const declarations = readHreflang(context);
+    // Identical declarations across methods are valid. Duplicates within one
+    // method and conflicting targets across methods are reported separately.
+    const seenDeclarations = new Set<string>();
+    const targets = new Map<string, string>();
+    for (const tag of declarations) {
+      const key = `${tag.source}:${tag.hreflang.toLowerCase()}`;
+      const target = resolveDocumentUrl(tag.href, url) ?? tag.href;
+      if (seenDeclarations.has(key)) issues.push({ issue: `Duplicate hreflang: "${tag.hreflang}"`, hreflang: tag.hreflang });
+      seenDeclarations.add(key);
+      const previous = targets.get(tag.hreflang.toLowerCase());
+      if (previous && previous !== target) issues.push({ issue: `Conflicting hreflang target: "${tag.hreflang}"`, href: tag.href });
+      targets.set(tag.hreflang.toLowerCase(), target);
+    }
+    const hreflangTags = declarations.filter((tag, index) => declarations.findIndex((other) => other.hreflang.toLowerCase() === tag.hreflang.toLowerCase() && other.href === tag.href) === index);
 
     if (hreflangTags.length === 0) {
-      // The HTTP Link header is an equally valid place for hreflang.
-      if ((context.headers['link'] ?? '').toLowerCase().includes('hreflang')) {
-        return pass('i18n-hreflang', 'Hreflang is declared in the HTTP Link header, not in the HTML', {
-          count: 0,
-          method: 'header',
-        });
-      }
-
       // Whether the site has other languages cannot be known from one page,
       // but a link to this same path under another locale shows that it does.
       const translationLinks = findTranslationLinks(context);
@@ -110,7 +102,6 @@ export const hreflangRule = defineRule({
           {
             count: 0,
             translationLinks: translationLinks.slice(0, 10),
-            note: 'Ignore if hreflang is declared in the XML sitemap, which this rule does not read',
             recommendation:
               'Add <link rel="alternate" hreflang="..."> for every language version, including this page itself',
           }
@@ -142,50 +133,13 @@ export const hreflangRule = defineRule({
         continue;
       }
 
-      // Check for x-default
-      if (hreflang === 'x-default') {
-        hasXDefault = true;
-        continue;
-      }
-
-      // Validate language code format
-      const langPattern = /^[a-z]{2}(-[A-Z]{2})?$/;
-      if (!langPattern.test(hreflang)) {
-        issues.push({
-          issue: `Invalid hreflang format: "${hreflang}"`,
-          hreflang,
-          href,
-        });
-      }
-
-      // Check for duplicate language codes
-      if (seenLanguages.has(hreflang)) {
-        issues.push({
-          issue: `Duplicate hreflang: "${hreflang}"`,
-          hreflang,
-        });
-      }
-      seenLanguages.add(hreflang);
-
-      // Check for absolute URLs
-      if (href && !href.startsWith('http://') && !href.startsWith('https://')) {
-        issues.push({
-          issue: 'Hreflang href should be absolute URL',
-          hreflang,
-          href,
-        });
-      }
-
-      // Check for self-reference
-      try {
-        const hrefUrl = new URL(href, context.documentBaseUrl ?? url);
-        const currentUrl = new URL(url);
-        if (hrefUrl.pathname === currentUrl.pathname && hrefUrl.host === currentUrl.host) {
-          hasSelfReference = true;
-        }
-      } catch {
-        // Invalid URL - already caught by absolute URL check
-      }
+      const code = hreflang.toLowerCase();
+      if (code === 'x-default') hasXDefault = true;
+      if (!validHreflang(hreflang)) issues.push({ issue: `Invalid hreflang format: "${hreflang}"`, hreflang, href });
+      seenLanguages.add(code);
+      const absolute = /^https?:\/\//i.test(href) && resolveDocumentUrl(href, url);
+      if (!absolute) issues.push({ issue: 'Invalid hreflang href: expected an absolute HTTP(S) URL', hreflang, href });
+      if (absolute && absolute === resolveDocumentUrl(url, url)) hasSelfReference = true;
     }
 
     // Check for missing self-reference
@@ -206,6 +160,7 @@ export const hreflangRule = defineRule({
       return pass('i18n-hreflang', `Found ${hreflangTags.length} valid hreflang tags`, {
         count: hreflangTags.length,
         languages: Array.from(seenLanguages),
+        methods: [...new Set(declarations.map((tag) => tag.source))],
         hasXDefault,
         hasSelfReference,
       });
@@ -216,12 +171,13 @@ export const hreflangRule = defineRule({
       (i) =>
         i.issue.includes('Empty') ||
         i.issue.includes('Invalid') ||
-        i.issue.includes('Duplicate')
+        i.issue.includes('Duplicate') || i.issue.includes('Conflicting')
     );
 
     if (hasCriticalIssues) {
       return fail('i18n-hreflang', `Found ${issues.length} hreflang issue(s)`, {
         count: hreflangTags.length,
+        declarations: declarations.slice(0, 20),
         issues: issues.slice(0, 10),
         totalIssues: issues.length,
       });

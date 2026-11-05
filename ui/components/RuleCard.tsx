@@ -10,6 +10,7 @@ import type { RuleResult } from '../../src/types.js';
 import type { RuleMetadata } from '../../electron/shared/ipc-types.js';
 import { formatRuleIdAsName, getStatusIcon, getStatusColorClass, safeHref, statusTokens } from '../lib/format.js';
 import { getFixSuggestion } from '../lib/fix-suggestions.js';
+import { displayStatus, issueLabel, readAssessment } from '../../src/analysis/issue-summary.js';
 
 interface RuleCardProps {
   rule: RuleResult;
@@ -17,7 +18,7 @@ interface RuleCardProps {
 }
 
 /** Keys to skip when rendering details (already shown elsewhere or internal) */
-const SKIP_KEYS = new Set(['pageUrl', 'suggestion', 'recommendation', 'note']);
+const SKIP_KEYS = new Set(['pageUrl', 'suggestion', 'recommendation', 'note', '_assessment']);
 
 function formatItemForDisplay(item: unknown): string | null {
   if (typeof item === 'string') return item;
@@ -42,7 +43,7 @@ function formatItemForDisplay(item: unknown): string | null {
 
   const pairs = Object.entries(obj)
     .filter(([, v]) => v != null && v !== '')
-    .map(([k, v]) => `${k}: ${v}`)
+    .map(([k, v]) => `${k}: ${typeof v === 'object' ? JSON.stringify(v) : v}`)
     .slice(0, 3);
   return pairs.join(', ') || null;
 }
@@ -65,19 +66,23 @@ function formatKey(key: string): string {
     .trim();
 }
 
-export function RuleCard({ rule, metadata }: RuleCardProps) {
+export function RuleCard({ rule: original, metadata }: RuleCardProps) {
+  const rule = { ...original, ...readAssessment(original) };
   const [showDetails, setShowDetails] = useState(false);
   const fixText =
-    rule.status !== 'pass'
+    (displayStatus(rule) === 'fail' || displayStatus(rule) === 'warn')
       ? // Fix text comes from the main-process registry metadata; the local
         // fix-suggestions map is the offline fallback only.
         (metadata?.fix ?? getFixSuggestion(rule.ruleId))
       : null;
-  const icon = getStatusIcon(rule.status);
-  const colorClass = getStatusColorClass(rule.status);
+  const status = displayStatus(rule);
+  const icon = getStatusIcon(status);
+  const colorClass = getStatusColorClass(status);
   const details = rule.details ?? {};
   const pageUrl = details.pageUrl as string | undefined;
-  const suggestion = (details.suggestion ?? details.recommendation ?? details.note) as string | undefined;
+  const unmeasured = displayStatus(rule) === 'not-measured';
+  const suggestion = (unmeasured ? details.reason : details.suggestion ?? details.recommendation ?? details.note) as string | undefined;
+  const textFields = Object.entries(details).filter(([key, value]) => !SKIP_KEYS.has(key) && (value === null || typeof value === 'string' && value.length > 0));
 
   // Rule name from metadata (main process registry) or fallback from ruleId
   const ruleName = metadata?.name ?? formatRuleIdAsName(rule.ruleId);
@@ -121,8 +126,8 @@ export function RuleCard({ rule, metadata }: RuleCardProps) {
         <div
           className="w-7 h-7 rounded-full flex items-center justify-center text-sm font-bold flex-shrink-0 mt-0.5"
           style={{
-            color: statusTokens(rule.status).color,
-            backgroundColor: statusTokens(rule.status).background,
+            color: statusTokens(status).color,
+            backgroundColor: statusTokens(status).background,
           }}
         >
           {icon}
@@ -176,6 +181,24 @@ export function RuleCard({ rule, metadata }: RuleCardProps) {
           )}
 
           {/* Suggestion from details */}
+          {(rule.confidence || unmeasured) && (
+            <p className="text-xs mt-2" style={{ color: 'var(--color-text-secondary)' }}>
+              {unmeasured ? 'Not measured — collect the required data and rerun this check.' : `${issueLabel(rule)} · ${rule.confidence === 'heuristic' ? 'Heuristic evidence; review before changing the site.' : 'Observed evidence'}`}
+            </p>
+          )}
+          {textFields.length > 0 && (
+            <dl className="mt-2 space-y-1 text-xs break-words">
+              {textFields.map(([key, value]) => (
+                <div key={key}>
+                  <dt className="font-medium" style={{ color: 'var(--color-text-secondary)' }}>{formatKey(key)}</dt>
+                  <dd className="font-mono whitespace-pre-wrap max-h-48 overflow-auto" style={{ color: 'var(--color-text-muted)' }}>{value === null ? 'No value' : String(value)}</dd>
+                </div>
+              ))}
+            </dl>
+          )}
+          {rule.evidence && (
+            <pre className="mt-2 text-xs whitespace-pre-wrap break-words max-h-64 overflow-auto" style={{ color: 'var(--color-text-secondary)' }}>{JSON.stringify(rule.evidence, null, 2)}</pre>
+          )}
           {suggestion && (
             <p className="text-xs mt-1.5 italic" style={{ color: 'var(--color-text-muted)' }}>
               {suggestion}
@@ -222,7 +245,7 @@ export function RuleCard({ rule, metadata }: RuleCardProps) {
                         if (typeof value === 'object' && value !== null) {
                           return Object.entries(value as Record<string, unknown>).map(([k, v]) => (
                             <span key={`${key}-${k}`} className="text-xs" style={{ color: 'var(--color-text-muted)' }}>
-                              <span className="font-medium" style={{ color: 'var(--color-text-secondary)' }}>{k}:</span> {String(v)}
+                              <span className="font-medium" style={{ color: 'var(--color-text-secondary)' }}>{k}:</span> {typeof v === 'object' ? JSON.stringify(v) : String(v)}
                             </span>
                           ));
                         }

@@ -113,6 +113,7 @@ export type {
   AuditResult,
   ScoreCap,
   AuditContext,
+  RenderQuality,
   AuditRule,
   CategoryResult,
   CategoryDefinition,

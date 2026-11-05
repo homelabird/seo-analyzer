@@ -1,4 +1,5 @@
 import { sanitizeForOutput } from '../sanitize.js';
+import { summarizeCounts } from '../analysis/issue-summary.js';
 import type { AuditResult, RuleResult } from '../types.js';
 import { collectFindings, type Finding } from './findings.js';
 import { scoreToVerdict } from '../verdict.js';
@@ -66,6 +67,13 @@ function pageAttribution(finding: Finding): string {
     ? `${finding.pageCount} of ${finding.measuredPages} pages`
     : `${finding.pageCount} pages`;
   return `- **Affects:** ${scope} — ${where}`;
+}
+
+/** Code spans preserve URL punctuation and cannot be escaped by site-supplied backticks. */
+function codeSpan(value: string): string {
+  const longest = Math.max(0, ...(value.match(/`+/g) ?? []).map((match) => match.length));
+  const fence = '`'.repeat(longest + 1);
+  return `${fence} ${value.replace(/[\r\n]+/g, ' ')} ${fence}`;
 }
 
 export function renderMarkdownReport(result: AuditResult): string {
@@ -159,6 +167,8 @@ export function renderMarkdownReport(result: AuditResult): string {
       lines.push('');
       lines.push(`- **Category:** ${escapeMarkdown(f.categoryName)}`);
       lines.push(`- **Status:** ${getStatusIcon(f.status)} Failed`);
+      if (f.confidence) lines.push(`- **Confidence:** ${f.confidence}`);
+      if (f.evidence) lines.push(`- **Evidence:** ${codeSpan(JSON.stringify(f.evidence))}`);
       lines.push(`- **Message:** ${escapeMarkdown(f.message)}`);
       const where = pageAttribution(f);
       if (where) lines.push(where);
@@ -169,10 +179,8 @@ export function renderMarkdownReport(result: AuditResult): string {
           const displayValue = typeof value === 'object'
             ? JSON.stringify(value)
             : String(value);
-          const truncated = displayValue.length > 100
-            ? displayValue.substring(0, 97) + '...'
-            : displayValue;
-          lines.push(`  - ${escapeMarkdown(key)}: \`${escapeMarkdown(truncated)}\``);
+          const truncated = displayValue;
+          lines.push(`  - ${escapeMarkdown(key)}: ${codeSpan(truncated)}`);
         }
       }
       lines.push('');
@@ -191,6 +199,8 @@ export function renderMarkdownReport(result: AuditResult): string {
       lines.push('');
       lines.push(`- **Category:** ${escapeMarkdown(f.categoryName)}`);
       lines.push(`- **Status:** ${getStatusIcon(f.status)} Warning`);
+      if (f.confidence) lines.push(`- **Confidence:** ${f.confidence}`);
+      if (f.evidence) lines.push(`- **Evidence:** ${codeSpan(JSON.stringify(f.evidence))}`);
       lines.push(`- **Message:** ${escapeMarkdown(f.message)}`);
       const where = pageAttribution(f);
       if (where) lines.push(where);
@@ -201,10 +211,8 @@ export function renderMarkdownReport(result: AuditResult): string {
           const displayValue = typeof value === 'object'
             ? JSON.stringify(value)
             : String(value);
-          const truncated = displayValue.length > 100
-            ? displayValue.substring(0, 97) + '...'
-            : displayValue;
-          lines.push(`  - ${escapeMarkdown(key)}: \`${escapeMarkdown(truncated)}\``);
+          const truncated = displayValue;
+          lines.push(`  - ${escapeMarkdown(key)}: ${codeSpan(truncated)}`);
         }
       }
       lines.push('');
@@ -212,17 +220,17 @@ export function renderMarkdownReport(result: AuditResult): string {
   }
 
   // Summary
-  const totalPassed = result.categoryResults.reduce((sum, cat) => sum + cat.passCount, 0);
-  const totalChecks = totalPassed + warnings.length + failures.length;
+  const { rules, evaluations } = summarizeCounts(result.categoryResults);
 
   lines.push('## Summary');
   lines.push('');
-  lines.push('| Metric | Count |');
-  lines.push('|--------|-------|');
-  lines.push(`| Total Checks | ${totalChecks} |`);
-  lines.push(`| :white_check_mark: Passed | ${totalPassed} |`);
-  lines.push(`| :warning: Warnings | ${warnings.length} |`);
-  lines.push(`| :x: Failures | ${failures.length} |`);
+  lines.push('| Metric | Rules | Page evaluations |');
+  lines.push('|--------|-------|------------------|');
+  lines.push(`| Total Checks | ${rules.total} | ${evaluations.total} |`);
+  lines.push(`| :white_check_mark: Passed | ${rules.pass} | ${evaluations.pass} |`);
+  lines.push(`| :warning: Warnings | ${rules.warn} | ${evaluations.warn} |`);
+  lines.push(`| :x: Failures | ${rules.fail} | ${evaluations.fail} |`);
+  lines.push(`| Not measured | ${rules.notMeasured} | ${evaluations.notMeasured} |`);
   lines.push('');
 
   // Footer

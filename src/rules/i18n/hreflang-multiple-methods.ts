@@ -1,82 +1,27 @@
 import type { AuditContext } from '../../types.js';
 import { defineRule, pass, warn } from '../define-rule.js';
+import { readHreflang } from '../../analysis/hreflang.js';
+import { resolveDocumentUrl } from '../../analysis/urls.js';
 
-/**
- * Rule: Hreflang Multiple Methods
- *
- * Checks if hreflang is specified via multiple methods simultaneously.
- * Hreflang can be declared via:
- * 1. HTML <link> tags in the <head>
- * 2. HTTP Link headers
- * 3. XML sitemap (not checkable from page context)
- *
- * Using multiple methods increases risk of inconsistencies. Google recommends
- * using one method consistently. If HTML tags and HTTP headers provide different
- * hreflang data, search engines may not know which to trust.
- *
- * Reference: https://developers.google.com/search/docs/specialty/international/localized-versions
- */
+/** Multiple equivalent methods are supported; only inconsistent sets need review. */
 export const hreflangMultipleMethodsRule = defineRule({
   id: 'i18n-hreflang-multiple-methods',
   name: 'Hreflang Multiple Methods',
-  description: 'Checks if hreflang is specified via both HTML link tags and HTTP headers',
+  description: 'Checks consistency of hreflang sets across HTML, HTTP headers and sitemaps',
   category: 'i18n',
   weight: 6,
   run: (context: AuditContext) => {
-    const { $, headers } = context;
-
-    // Check HTML link tags
-    const hasHtmlHreflang = $('link[rel="alternate"][hreflang]').length > 0;
-
-    // Check HTTP Link header for hreflang
-    // Format: <URL>; rel="alternate"; hreflang="en"
-    const linkHeader = headers['link'] || '';
-    const hasHeaderHreflang = linkHeader.toLowerCase().includes('hreflang');
-
-    if (!hasHtmlHreflang && !hasHeaderHreflang) {
-      return pass('i18n-hreflang-multiple-methods', 'No hreflang declarations found', {
-        htmlHreflang: false,
-        headerHreflang: false,
-      });
+    const declarations = readHreflang(context);
+    const sets = new Map<string, Set<string>>();
+    for (const tag of declarations) {
+      if (!sets.has(tag.source)) sets.set(tag.source, new Set());
+      sets.get(tag.source)!.add(`${tag.hreflang.toLowerCase()}:${resolveDocumentUrl(tag.href, context.url) ?? tag.href}`);
     }
-
-    if (hasHtmlHreflang && !hasHeaderHreflang) {
-      return pass(
-        'i18n-hreflang-multiple-methods',
-        'Hreflang declared via HTML link tags only (consistent method)',
-        {
-          htmlHreflang: true,
-          headerHreflang: false,
-          method: 'html',
-          htmlCount: $('link[rel="alternate"][hreflang]').length,
-        }
-      );
-    }
-
-    if (!hasHtmlHreflang && hasHeaderHreflang) {
-      return pass(
-        'i18n-hreflang-multiple-methods',
-        'Hreflang declared via HTTP Link header only (consistent method)',
-        {
-          htmlHreflang: false,
-          headerHreflang: true,
-          method: 'header',
-        }
-      );
-    }
-
-    // Both methods are used
-    return warn(
-      'i18n-hreflang-multiple-methods',
-      'Hreflang declared via both HTML link tags and HTTP Link header (risk of inconsistency)',
-      {
-        htmlHreflang: true,
-        headerHreflang: true,
-        htmlCount: $('link[rel="alternate"][hreflang]').length,
-        linkHeader,
-        recommendation:
-          'Use a single method for hreflang declaration to avoid conflicting annotations',
-      }
-    );
+    const signatures = [...sets.values()].map((values) => [...values].sort().join('\n'));
+    const inconsistent = new Set(signatures).size > 1;
+    const details = { methods: [...sets.keys()], htmlHreflang: sets.has('html'), headerHreflang: sets.has('header'), sitemapHreflang: sets.has('sitemap'), count: declarations.length };
+    return inconsistent
+      ? warn('i18n-hreflang-multiple-methods', 'Hreflang declaration methods contain different alternate sets', { ...details, recommendation: 'Keep the language/URL sets identical across the methods you use, or maintain one method.' })
+      : pass('i18n-hreflang-multiple-methods', sets.size > 1 ? 'Hreflang declarations agree across methods' : 'Hreflang uses a single method or is not declared', details);
   },
 });

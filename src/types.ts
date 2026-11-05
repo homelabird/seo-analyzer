@@ -182,6 +182,8 @@ export interface RedirectChainEntry {
  * One `<url>` entry from a sitemap
  */
 export interface SitemapEntry {
+  /** XML sitemap xhtml:link alternate language declarations. */
+  alternates?: { hreflang: string; href: string }[];
   /** The URL itself */
   loc: string;
   /** Declared last modification date, as sent */
@@ -500,10 +502,25 @@ export interface SchemaNodeSummary {
   refs: string[];
 }
 
-/**
- * Context passed to each audit rule's run function
- */
+/** Browser content readiness observed within a bounded wait. */
+export interface RenderQuality {
+  /** Bounded readiness observation, not a guarantee that every async task finished. */
+  state: 'ready' | 'incomplete';
+  waitedMs: number;
+  contentCharacters: number;
+  reason: string;
+}
+
+/** Context passed to each audit rule. */
 export interface AuditContext {
+  renderQuality?: RenderQuality;
+  /** Complete-crawl comparisons, prepared before any page is scored. */
+  duplicateComparison?: {
+    source: 'raw-html' | 'rendered-dom';
+    textLength: number;
+    exact: { comparablePages: number; hash: string; clusterUrls: string[] };
+    near: { comparablePages: number; similarity: number; mostSimilarUrl?: string; clusterUrls: string[]; sampledShingles: number; totalShingles: number };
+  };
   /** Evidence observed on the authenticated connection/browser navigation. */
   tls?: { validTo?: string; protocol?: string };
   httpProtocol?: string;
@@ -621,6 +638,10 @@ export interface AuditContext {
  * Result returned by an individual audit rule
  */
 export interface RuleResult {
+  /** Optional evidence assessment, separate from its scoring status. */
+  severity?: 'critical' | 'error' | 'recommendation' | 'observation';
+  confidence?: 'observed' | 'heuristic';
+  evidence?: { source: 'raw-html' | 'rendered-dom' | 'http' | 'crawl-graph'; observed?: unknown; expected?: unknown; selector?: string };
   /** Rule identifier */
   ruleId: string;
   /** Pass/warn/fail status */
@@ -736,7 +757,7 @@ export interface PageSnapshot {
  * Bump on any change a consumer could notice. 1 is the shape shipped through
  * 3.5.0, so a payload with no `schemaVersion` should be read as 1.
  */
-export const AUDIT_SCHEMA_VERSION = 3;
+export const AUDIT_SCHEMA_VERSION = 4;
 
 /**
  * The options an audit actually ran with.
@@ -784,6 +805,8 @@ export interface AuditRunOptions {
  * returned almost nothing for the pages it did offer.
  */
 export interface AuditCoverage {
+  /** Bounded browser readiness observations, retained in exports and history. */
+  rendering?: Array<RenderQuality & { url: string }>;
   unavailableMeasurements?: string[];
   crawl?: SiteContext['coverage'];
   /** Every page URL the audit covered, in crawl order. */

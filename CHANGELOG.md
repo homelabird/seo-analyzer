@@ -16,6 +16,26 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- Count every measured page, including passes, when ranking findings. Share
+  rule summaries across live and stored reports; preserve affected/fail/warn
+  counts and select worst status independently of page ordering.
+- Show scalar evidence, full canonical URLs, assessment confidence and explicit
+  measurement advice. Failed checks are no longer all labelled critical.
+- Compare affected URLs even when a rule's worst status stays unchanged; show
+  before/after counts, resolved/new findings and changes in measured coverage.
+- Resolve raw/rendered canonicals before comparison. Relative canonicals are
+  supported with an absolute-URL recommendation; path/query differences remain.
+- Validate case-insensitive language/script/region hreflang from HTML, parsed
+  HTTP Link headers and XML sitemap alternates, including cross-method conflicts.
+- Wait up to five additional seconds for sparse scripted content. Record render
+  readiness; incomplete content cannot prove an empty page or a duplicate.
+- Prepare duplicate groups from the completed crawl, score every member
+  symmetrically, and sample trigrams across the entire main content. Similarity
+  estimates are labelled for review rather than asserted as ranking penalties.
+- **Scoring model 7 / result schema 4:** these corrections can change scores;
+  category weights and all 373 rule IDs remain unchanged. Older results retain
+  their original scoring version.
+
 - Preserve Unicode text in counts and near-duplicate comparisons. English-only
   readability, keyword and absolute word-count thresholds are not graded on
   unsupported languages; insufficient samples are unmeasured.

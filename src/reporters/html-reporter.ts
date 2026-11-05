@@ -1,3 +1,4 @@
+import { summarizeRules, issueLabel, readAssessment } from '../analysis/issue-summary.js';
 import { sanitizeForOutput } from '../sanitize.js';
 import type {
   PageSnapshot,
@@ -95,6 +96,8 @@ function fromDisplayStatus(status: DisplayStatus): RuleStatus {
  * Aggregated issue structure for grouping same-rule occurrences
  */
 interface AggregatedIssue {
+  details?: Record<string, unknown>;
+  evidence?: RuleResult['evidence'];
   ruleId: string;
   status: DisplayStatus;
   categoryId: string;
@@ -111,6 +114,8 @@ interface AggregatedIssue {
    * find out what to fix first.
    */
   priority: number;
+  confidence?: RuleResult['confidence'];
+  severity?: RuleResult['severity'];
 }
 
 /**
@@ -174,6 +179,7 @@ function aggregateIssuesByRule(
       if (!ruleGroups.has(key)) {
         ruleGroups.set(key, {
           ruleId: r.ruleId,
+          ...readAssessment(r), details: r.details,
           status: displayStatus,
           categoryId: cat.categoryId,
           categoryName,
@@ -190,7 +196,7 @@ function aggregateIssuesByRule(
       if (url) {
         group.pages.push({ url, details: r.details || {} });
       }
-      group.pageCount++;
+      group.pageCount += (r as Partial<RuleSummary>).affectedPages ?? 1;
 
       // A stored audit arrives as `RuleSummary`, already ranked server-side
       // against the full page counts. Prefer that over anything derived here.
@@ -202,11 +208,7 @@ function aggregateIssuesByRule(
 
     // A live audit has one result per rule per page and no precomputed rank, so
     // derive the same number: the share of measured pages this status covers.
-    const measuredByRule = new Map<string, number>();
-    for (const g of groups) {
-      if (g.status === 'notmeasured') continue;
-      measuredByRule.set(g.ruleId, (measuredByRule.get(g.ruleId) ?? 0) + g.pageCount);
-    }
+    const measuredByRule = new Map(summarizeRules([cat]).map((summary) => [summary.ruleId, summary.measuredPages]));
     for (const g of groups) {
       if (g.priority) continue;
       const measuredPages = measuredByRule.get(g.ruleId) ?? 0;
@@ -2217,11 +2219,13 @@ export function renderHtmlReport(result: AuditResult): string {
     .slice(0, TOP_ISSUES)
     .map((issue) => {
       const pageBits = encodePages(issue.pages.map(p => p.url), pageIndexOf, uniqueUrls.length);
-      const pageDisplay = issue.pages.length === 0
+      const pageDisplay = issue.pageCount > 1
+        ? `<span class="issue-row-url">${issue.pageCount} pages</span>`
+        : issue.pages.length === 0
         ? '-'
         : issue.pages.length === 1
           ? `<span class="issue-row-url" title="${escapeHtml(issue.pages[0].url)}">${escapeHtml(getShortUrl(issue.pages[0].url))}</span>`
-          : `<span class="issue-row-url">${issue.pages.length} pages</span>`;
+          : `<span class="issue-row-url">${issue.pageCount} pages</span>`;
 
       return `
       <tr class="issue-row" data-rule-id="${escapeHtml(issue.ruleId)}" data-status="${issue.status}" data-pages="${pageBits}">
@@ -2236,7 +2240,7 @@ export function renderHtmlReport(result: AuditResult): string {
         </td>
         ${isMultiPageReport ? `<td>${pageDisplay}</td>` : ''}
         <td>
-          <span class="issue-row-severity ${issue.status}">${issue.status === 'fail' ? 'Critical' : 'Warning'}</span>
+          <span class="issue-row-severity ${issue.status}">${issueLabel({ status: fromDisplayStatus(issue.status), confidence: issue.confidence, severity: issue.severity })}</span>
         </td>
       </tr>
     `;
@@ -2279,7 +2283,8 @@ export function renderHtmlReport(result: AuditResult): string {
   }).join('');
 
   // Helper function to generate pages list HTML
-  const generatePagesListHtml = (pages: Array<{ url: string; details: Record<string, unknown> }>): string => {
+  const generatePagesListHtml = (pages: Array<{ url: string; details: Record<string, unknown> }>, count: number): string => {
+    if (count > pages.length) return `<div class="pages-inline">${count} pages affected; ${pages.length} sampled URL(s) shown${pages.length ? ': ' + pages.map(p => `<a href="${escapeHtml(p.url)}" target="_blank" rel="noopener">${escapeHtml(getShortUrl(p.url))}</a>`).join(' ') : ''}</div>`;
     if (pages.length === 0) return '';
 
     // A per-rule page link answers "which of the crawled pages is this about".
@@ -2351,7 +2356,11 @@ export function renderHtmlReport(result: AuditResult): string {
       const pageBits = encodePages(issue.pages.map(p => p.url), pageIndexOf, uniqueUrls.length);
 
       // Generate pages list HTML (collapsible for 4+ pages)
-      const pagesHtml = generatePagesListHtml(issue.pages);
+      const pagesHtml = generatePagesListHtml(issue.pages, issue.pageCount);
+      const assessment = issue.confidence ? `<div class="rule-description">${issue.confidence === 'heuristic' ? 'Heuristic evidence — review matching pages before changing the site.' : 'Observed evidence'}</div>` : '';
+      const detailEntries = Object.entries(issue.details ?? {}).filter(([key]) => !['pageUrl', 'url', '_assessment'].includes(key));
+      const evidenceHtml = detailEntries.length || issue.evidence
+        ? `<details class="rule-fix"><summary>Evidence (representative page)</summary><dl>${detailEntries.map(([key, value]) => `<dt>${escapeHtml(key)}</dt><dd style="overflow-wrap:anywhere;white-space:pre-wrap">${escapeHtml(typeof value === 'object' ? JSON.stringify(value) : String(value))}</dd>`).join('')}</dl>${issue.evidence ? `<pre style="white-space:pre-wrap;overflow-wrap:anywhere">${escapeHtml(JSON.stringify(issue.evidence, null, 2))}</pre>` : ''}</details>` : '';
 
       // The rule's generic description ("checks that the page has a title")
       // sat under the finding's own message ("title is 51 characters"): noise
@@ -2393,6 +2402,8 @@ export function renderHtmlReport(result: AuditResult): string {
               </div>
               ${issue.status === 'notmeasured' ? '<div class="rule-notmeasured-tag">Not measured</div>' : ''}
               <div class="rule-message">${escapeHtml(issue.message)}</div>
+              ${assessment}
+              ${evidenceHtml}
               ${fixHtml ? '' : descriptionHtml}
               ${pagesHtml}
               ${fixHtml}

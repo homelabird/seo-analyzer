@@ -77,6 +77,8 @@ export interface RuleSummary extends RuleResult {
   totalPages: number;
   measuredPages: number;
   affectedPages: number;
+  failPages?: number;
+  warnPages?: number;
   notMeasured: boolean;
   samplePages: Array<{ pageUrl: string; status: RuleResultStatus; message: string }>;
 }

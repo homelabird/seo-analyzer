@@ -102,7 +102,7 @@ Essential SEO checks for meta tags, canonical URLs, H1 headings, and indexing di
 | `core-description-present` | Meta Description Present | 15 | fail | Checks for `<meta name="description">` |
 | `core-description-length` | Meta Description Length | 1 | warn | Validates description length (120-160 characters) |
 | `core-canonical-present` | Canonical URL Present | 10 | fail | Checks for `<link rel="canonical">` |
-| `core-canonical-valid` | Canonical URL Valid | 1 | warn/fail | Checks the canonical href is an absolute http(s) URL; a page without a canonical warns |
+| `core-canonical-valid` | Canonical URL Valid | 1 | warn/fail | Validates HTTP(S) canonicals; supported relative URLs receive an absolute-URL recommendation |
 | `core-viewport-present` | Viewport Meta Tag Present | 20 | fail | Checks for viewport meta tag |
 | `core-favicon-present` | Favicon Present | 1 | fail | Checks for favicon link tags |
 | `core-h1-present` | H1 Tag Present | 15 | fail | Checks for at least one `<h1>` tag |
@@ -141,7 +141,7 @@ Essential SEO checks for meta tags, canonical URLs, H1 headings, and indexing di
 - **Fix:** Add a self-referencing canonical URL on every page
 
 #### core-canonical-valid
-- **What it checks:** The first canonical `href` parses as an absolute `http:` or `https:` URL. An empty or relative href fails; a page with no canonical warns. The URL is not fetched.
+- **What it checks:** The first canonical `href` resolves to an HTTP(S) URL. An empty/invalid href fails. Relative URLs are supported but warn with the resolved URL and an absolute-URL recommendation; a page with no canonical warns. The URL is not fetched.
 
 #### core-viewport-present
 - **Fix:** Add `<meta name="viewport" content="width=device-width, initial-scale=1">`
@@ -785,8 +785,8 @@ The cross-page rules (`crawl-sitemap-orphan-urls`, `crawl-pagination-isolated`, 
 - **Fix:** Remove the robots.txt Disallow for this URL, or remove the hreflang annotations pointing at it
 
 #### crawl-hreflang-incoming-conflict
-- **What it checks:** The incoming side of hreflang conflicts: annotations from OTHER crawled pages that target this URL must agree on a single language/region code. The page's own annotations are excluded (i18n-hreflang-conflicting's job). x-default never conflicts, because it is a fallback, not a language claim
-- **Fix:** Make every page in the hreflang cluster annotate each member URL with the same single language/region code
+- **What it checks:** The incoming side of hreflang conflicts: annotations from OTHER crawled pages that target this URL are reviewed when they claim different primary languages. Regional/catchall codes of the same language may share a target. The page's own annotations are excluded (i18n-hreflang-conflicting's job). x-default never conflicts, because it is a fallback, not a language claim
+- **Fix:** Review primary-language claims and keep regional/catchall mappings consistent
 
 #### crawl-hreflang-reciprocity
 - **What it checks:** Every crawled hreflang target of this page annotates this page in return (return tags), because annotations are only honoured when mutual. Warns rather than fails, since missing return tags are usually a template gap. Targets the crawl never visited are skipped; when none were crawled the rule is not measured
@@ -938,8 +938,9 @@ Analyzes text quality, readability, headings, and duplicate content.
 - **Fix:** Keep title under ~580px and description under ~920px to avoid SERP truncation.
 
 #### content-duplicate-exact / content-duplicate-near
-- **Near duplicates:** Unicode word trigrams (up to 500 tokens), including Korean and segmented Chinese/Japanese text. Insufficient content or trigrams is not measured.
-- **Fix:** Consolidate duplicate pages with canonical tags or 301 redirects. Rewrite near-duplicate content.
+- **What it checks:** Completed-crawl comparisons of normalized main content, using rendered HTML when available. Exact duplicates use SHA-256 hashes; near duplicates use a bottom-k sample of at most 512 hashed word trigrams covering the entire document. Similarity is estimated Jaccard (>0.8 fail, >0.6 warn) and marked heuristic. Every member of a matching group is assessed symmetrically; page ordering cannot exempt the first member. Fewer than two comparable pages, insufficient content or incomplete rendering is not measured.
+- **Evidence:** Comparable page count, exact/near cluster size, up to 50 cluster URLs, a stable display representative, similarity, sample size and source. Clusters are transitive; the representative is not a canonical recommendation. Matches do not prove a ranking penalty or incorrect canonical intent.
+- **Fix:** Review matching pages and their intended canonical/indexability relationship before consolidating or differentiating content.
 
 #### content-broken-html
 - **Fix:** Use an HTML validator. Fix duplicate IDs, invalid nesting, empty elements.
@@ -1497,7 +1498,7 @@ Checks language declarations and multi-language hreflang implementation.
 | `i18n-hreflang-to-redirect` | Hreflang to Redirect | 8 | warn | Hreflang target redirects (HTTP on HTTPS site; in crawl mode also crawled 3xx targets) |
 | `i18n-hreflang-conflicting` | Conflicting Hreflang Annotations | 10 | fail | Conflicting hreflang declarations |
 | `i18n-hreflang-lang-mismatch` | Hreflang Lang Mismatch | 8 | warn | Warns when the primary language of `<html lang>` differs from the page's hreflang self-reference code |
-| `i18n-hreflang-multiple-methods` | Hreflang Multiple Methods | 6 | warn | Warns when hreflang is declared in both HTML link tags and the HTTP Link header |
+| `i18n-hreflang-multiple-methods` | Hreflang Multiple Methods | 6 | warn | Checks consistency of alternate sets across HTML, HTTP headers and XML sitemaps |
 | `i18n-hreflang-relative-url` | Hreflang Relative URLs | 6 | fail | Hreflang annotations must use absolute URLs, not relative ones |
 | `i18n-hreflang-x-default` | Hreflang Annotation Also X-Default | 1 | pass only | Reports when a language annotation targets the same URL as x-default (insight) |
 | `i18n-hreflang-incoming-invalid` | Invalid Incoming Hreflang Annotations | 8 | fail | Hreflang annotations from other crawled pages targeting this URL use invalid language/region codes (requires --crawl) |
@@ -1506,11 +1507,11 @@ Checks language declarations and multi-language hreflang implementation.
 - **Fix:** Add `<html lang="en">` with a valid BCP 47 language code (e.g., "en", "en-US", "zh-Hans").
 
 #### i18n-hreflang
-- **What it checks:** Each `<link rel="alternate" hreflang>`. An empty value, a code not written `xx` or `xx-YY` (lowercase language, uppercase region), or a repeated code fails. A relative href, no self-reference, or no x-default among two or more annotations warns. A page with no hreflang link elements passes when the HTTP `Link` header declares hreflang. Otherwise it warns only when the page links to its own path under another locale prefix (`/en/docs/x` to `/fr/docs/x`) and its first path segment matches `<html lang>`. Hreflang in the XML sitemap is not read.
-- **Fix:** Add `<link rel="alternate" hreflang="xx" href="...">` for each language version. Include x-default.
+- **What it checks:** HTML, parsed HTTP Link headers and sitemap `xhtml:link` alternates. Language[-Script][-REGION] codes are case insensitive and validated against supported two-letter language/region codes and optional script codes. Empty/invalid codes, invalid or relative HTTP(S) targets, duplicate codes within a method, and conflicting targets across methods fail. Missing self-reference or optional x-default receives a recommendation. Identical declarations across methods are supported. Without declarations, only links to an equivalent locale path trigger a recommendation.
+- **Fix:** Declare every language version and the current page using absolute URLs. Consider x-default for a fallback.
 
 #### i18n-hreflang-return-links
-- **What it checks:** Whether the page's own hreflang set contains an entry whose href is this page (same host and path). It does not fetch the targets. In a crawl, `crawl-hreflang-reciprocity` checks that targets annotate this page in return.
+- **What it checks:** Whether the page's hreflang set (HTML, header or sitemap) contains an entry resolving to this document, including scheme, path and query; fragments are ignored. It does not fetch the targets. In a crawl, `crawl-hreflang-reciprocity` checks that targets annotate this page in return.
 - **Fix:** Add a `<link rel="alternate" hreflang="xx" href="...">` that points at the current page URL.
 
 #### i18n-hreflang-to-noindex
@@ -1525,16 +1526,16 @@ Checks language declarations and multi-language hreflang implementation.
 - **Fix:** Update hreflang targets to valid, non-redirecting URLs. All hreflang targets should return 200.
 
 #### i18n-hreflang-conflicting
-- **What it checks:** Three conflict forms: the same language/region code pointing to multiple different URLs, the same URL targeted by multiple different codes, and the current page self-referenced by multiple different codes. A language code that shares its target with x-default is not a conflict, because x-default is a fallback declaration.
-- **Fix:** Resolve conflicting hreflang declarations. Each language/region pair should map to exactly one URL, each URL to exactly one code, and the page should self-reference under a single code.
+- **What it checks:** The same case-insensitive language/script/region code pointing to different URLs within or across HTML, HTTP and sitemap methods. A catchall and regional annotation may share a target, including the current page.
+- **Fix:** Use one consistent target for each code; shared regional/catchall targets are supported.
 
 #### i18n-hreflang-lang-mismatch
 - **What it checks:** The primary language subtag of `<html lang>` against that of the hreflang entry pointing at this page, so `en-US` matches `en`. The page text is not analysed. Without a lang attribute or a self-reference, the rule passes.
 - **Fix:** Make `<html lang>` and the page's own hreflang code name the same language.
 
 #### i18n-hreflang-multiple-methods
-- **What it checks:** Hreflang declared both in HTML `<link rel="alternate" hreflang>` tags and in an HTTP `Link` header on the same page. Hreflang in the XML sitemap is not read.
-- **Fix:** Use a single method for hreflang: HTML link tags, HTTP headers, or sitemap. Don't mix methods.
+- **What it checks:** The complete language/URL sets declared by HTML, parsed HTTP Link headers and XML sitemap alternates. Matching sets pass even when several methods are used; differing sets warn.
+- **Fix:** Maintain matching sets across methods, or use one method to simplify maintenance.
 
 #### i18n-hreflang-relative-url
 - **What it checks:** Hreflang annotations whose href is a relative URL (`/fr/`, `fr/page`, or protocol-relative `//example.com/fr/`). Targets must be absolute URLs including the protocol; relative ones are invalid per the hreflang specification and may break the entire annotation set

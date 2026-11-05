@@ -447,6 +447,8 @@ export interface HydratedAuditResult {
  * ~332,000 result rows but only ~330 of these.
  */
 export interface StoredRuleSummary {
+  failPages?: number;
+  warnPages?: number;
   categoryId: string;
   ruleId: string;
   ruleName: string;

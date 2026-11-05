@@ -379,6 +379,8 @@ export function getRuleSummaries(db: Database.Database, auditId: number): Stored
       COUNT(*) AS total_pages,
       SUM(CASE WHEN ${NOT_MEASURED_SQL} THEN 0 ELSE 1 END) AS measured_pages,
       SUM(CASE WHEN NOT ${NOT_MEASURED_SQL} AND status <> 'pass' THEN 1 ELSE 0 END) AS affected_pages,
+      SUM(CASE WHEN NOT ${NOT_MEASURED_SQL} AND status = 'fail' THEN 1 ELSE 0 END) AS fail_pages,
+      SUM(CASE WHEN NOT ${NOT_MEASURED_SQL} AND status = 'warn' THEN 1 ELSE 0 END) AS warn_pages,
       MIN(id) AS first_id
     FROM audit_results
     WHERE audit_id = ?
@@ -393,6 +395,8 @@ export function getRuleSummaries(db: Database.Database, auditId: number): Stored
     total_pages: number;
     measured_pages: number;
     affected_pages: number;
+    fail_pages: number;
+    warn_pages: number;
   }>;
 
   const samples = db
@@ -440,6 +444,8 @@ export function getRuleSummaries(db: Database.Database, auditId: number): Stored
       totalPages: row.total_pages,
       measuredPages: row.measured_pages,
       affectedPages: row.affected_pages,
+      failPages: row.fail_pages,
+      warnPages: row.warn_pages,
       notMeasured,
       samplePages: ruleSamples.map((s) => ({
         pageUrl: s.page_url,

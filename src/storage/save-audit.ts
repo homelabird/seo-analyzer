@@ -167,7 +167,12 @@ export function saveAuditToDatabase(result: AuditResult, options: SaveAuditOptio
         score: ruleResult.score,
         message: ruleResult.message,
         weight: ruleResult.weight ?? 1,
-        ...(ruleResult.details && { details: ruleResult.details }),
+        ...((ruleResult.details || ruleResult.confidence || ruleResult.severity || ruleResult.evidence) && { details: {
+          ...ruleResult.details,
+          ...((ruleResult.confidence || ruleResult.severity || ruleResult.evidence) && { _assessment: {
+            confidence: ruleResult.confidence, severity: ruleResult.severity, evidence: ruleResult.evidence,
+          } }),
+        } }),
       });
     }
   }

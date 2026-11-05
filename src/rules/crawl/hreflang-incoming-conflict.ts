@@ -66,13 +66,13 @@ export const hreflangIncomingConflictRule = defineRule({
       );
     }
 
-    if (sourcesByCode.size === 1) {
+    if (sourcesByCode.size === 1 || new Set([...sourcesByCode.keys()].map((code) => code.split('-')[0])).size === 1) {
       const [code, sources] = Array.from(sourcesByCode.entries())[0];
       return pass(
         'crawl-hreflang-incoming-conflict',
         `Incoming hreflang annotations agree: this URL is "${code}"`,
         {
-          incomingCodes: [code],
+          incomingCodes: [...sourcesByCode.keys()].sort(),
           sources: Array.from(sources).slice(0, 10),
         }
       );
@@ -83,7 +83,7 @@ export const hreflangIncomingConflictRule = defineRule({
       sources: Array.from(sources).slice(0, 5),
     }));
 
-    return fail(
+    return { ...fail(
       'crawl-hreflang-incoming-conflict',
       `Other pages annotate this URL with ${sourcesByCode.size} different hreflang codes`,
       {
@@ -91,8 +91,8 @@ export const hreflangIncomingConflictRule = defineRule({
         impact:
           'Search engines receive contradictory signals about which language/region version this URL is, and may ignore the hreflang cluster entirely.',
         recommendation:
-          'Make every page in the hreflang cluster annotate each member URL with the same single language/region code.',
+          'Review the primary language targets. Regional and catchall codes may intentionally share a URL; align the cluster with the content language.',
       }
-    );
+    ), confidence: 'heuristic', severity: 'recommendation', evidence: { source: 'crawl-graph', observed: [...sourcesByCode.keys()], expected: 'Review conflicting primary language claims; shared regional targets are supported' } };
   },
 });

@@ -1,6 +1,7 @@
 import type { AuditContext } from '../../types.js';
 import { defineRule, pass, fail, notMeasured } from '../define-rule.js';
 import { compareAttribute } from './utils/compare-dom.js';
+import { documentBase, resolveDocumentUrl } from '../../analysis/urls.js';
 
 /**
  * Rule: Canonical Mismatch Between Raw and Rendered DOM
@@ -17,9 +18,9 @@ export const canonicalMismatchRule = defineRule({
   category: 'js',
   weight: 10,
   run: async (context: AuditContext) => {
-    const rendered$ = (context as any).rendered$;
+    const rendered$ = context.rendered$;
 
-    if (!rendered$) {
+    if (!rendered$ || context.renderQuality?.state === 'incomplete') {
       return notMeasured(
         'js-canonical-mismatch',
         'Rendered DOM not available - run without --no-cwv to enable JavaScript rendering checks'
@@ -50,12 +51,19 @@ export const canonicalMismatchRule = defineRule({
     }
 
     if (comparison.differs) {
+      const raw = comparison.rawValue ? resolveDocumentUrl(comparison.rawValue, context.documentBaseUrl ?? documentBase(context.$, context.url)) : undefined;
+      const rendered = comparison.renderedValue ? resolveDocumentUrl(comparison.renderedValue, documentBase(rendered$, context.url)) : undefined;
+      if (raw && rendered && raw === rendered) {
+        return pass('js-canonical-mismatch', 'Canonical URL resolves to the same document before and after rendering', { rawCanonical: comparison.rawValue, renderedCanonical: comparison.renderedValue, resolvedCanonical: raw });
+      }
       return fail(
         'js-canonical-mismatch',
         'Canonical URL changed after JavaScript execution',
         {
           rawCanonical: comparison.rawValue || null,
           renderedCanonical: comparison.renderedValue || null,
+          resolvedRawCanonical: raw ?? null,
+          resolvedRenderedCanonical: rendered ?? null,
           impact: 'Search engines may see different canonical URLs depending on JS execution',
           recommendation: 'Ensure the canonical URL is consistent in both raw HTML and after JS rendering',
         }

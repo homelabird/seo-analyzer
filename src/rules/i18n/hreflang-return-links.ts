@@ -1,5 +1,7 @@
 import type { AuditContext } from '../../types.js';
-import { defineRule, pass, warn } from '../define-rule.js';
+import { defineRule, pass, warn, notMeasured } from '../define-rule.js';
+import { readHreflang } from '../../analysis/hreflang.js';
+import { resolveDocumentUrl } from '../../analysis/urls.js';
 
 /**
  * Rule: Hreflang Return Links (Self-Referencing)
@@ -21,48 +23,12 @@ export const hreflangReturnLinksRule = defineRule({
   category: 'i18n',
   weight: 12,
   run: (context: AuditContext) => {
-    const { $, url } = context;
-    const hreflangElements = $('link[rel="alternate"][hreflang]');
-
-    if (hreflangElements.length === 0) {
-      return pass('i18n-hreflang-return-links', 'No hreflang tags found (nothing to check)', {
-        count: 0,
-      });
-    }
-
-    const hreflangUrls: Array<{ hreflang: string; href: string }> = [];
-    let hasSelfReference = false;
-
-    let currentUrl: URL;
-    try {
-      currentUrl = new URL(url);
-    } catch {
-      return pass('i18n-hreflang-return-links', 'Cannot parse current URL for comparison', {
-        url,
-      });
-    }
-
-    hreflangElements.each((_, el) => {
-      const $el = $(el);
-      const hreflang = $el.attr('hreflang') || '';
-      const href = $el.attr('href') || '';
-
-      hreflangUrls.push({ hreflang, href });
-
-      if (href) {
-        try {
-          const hrefUrl = new URL(href, context.documentBaseUrl ?? url);
-          if (
-            hrefUrl.host === currentUrl.host &&
-            hrefUrl.pathname === currentUrl.pathname
-          ) {
-            hasSelfReference = true;
-          }
-        } catch {
-          // Invalid URL, skip comparison
-        }
-      }
-    });
+    const { url } = context;
+    const hreflangUrls = readHreflang(context);
+    if (!hreflangUrls.length) return pass('i18n-hreflang-return-links', 'No hreflang tags found (nothing to check)', { count: 0 });
+    const current = resolveDocumentUrl(url, url);
+    if (!current) return notMeasured('i18n-hreflang-return-links', 'Cannot parse current URL for comparison');
+    const hasSelfReference = hreflangUrls.some(({ href }) => /^https?:\/\//i.test(href) && resolveDocumentUrl(href, url) === current);
 
     if (hasSelfReference) {
       return pass(

@@ -1,4 +1,5 @@
 import type { AuditContext, SiteContext, SitePageInfo } from '../../types.js';
+import { readHreflang } from '../../analysis/hreflang.js';
 
 /**
  * Shared helpers for crawl-mode rules that cross-reference per-page crawl
@@ -47,16 +48,14 @@ export function resolveHreflangOut(context: AuditContext): Record<string, string
   if (info) return info.hreflangOut;
 
   const out: Record<string, string> = {};
-  context.$('link[rel="alternate"][hreflang]').each((_, el) => {
-    const code = context.$(el).attr('hreflang');
-    const href = context.$(el).attr('href');
-    if (!code || !href) return;
+  for (const { hreflang: code, href } of readHreflang(context)) {
+    if (!code || !href) continue;
     try {
       out[code.toLowerCase()] = new URL(href, context.documentBaseUrl ?? context.url).href;
     } catch {
       // Unresolvable target - other rules report invalid hreflang URLs.
     }
-  });
+  }
   return out;
 }
 

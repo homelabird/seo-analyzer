@@ -1,3 +1,4 @@
+import { summarizeRules, issueLabel } from '../../src/analysis/issue-summary.js';
 /**
  * Every failing and warning rule, worst first.
  *
@@ -37,6 +38,7 @@ interface IssueRow {
   categoryId: string;
   categoryName: string;
   status: 'fail' | 'warn';
+  label: string;
   message: string;
   pageUrl: string | null;
   count: number;
@@ -45,39 +47,15 @@ interface IssueRow {
 export function IssuesTable({ result, ruleMetadata, onIssueClick }: IssuesTableProps) {
   const [showAll, setShowAll] = useState(false);
 
-  // Aggregate issues across categories
-  const issues: IssueRow[] = [];
-  for (const cat of result.categoryResults) {
-    const ruleMap = new Map<string, IssueRow>();
-    for (const rule of cat.results) {
-      // Unmeasured checks are not issues: they produced no reading, so they
-      // belong in their own block rather than in a list of things to fix.
-      if (rule.status === 'pass' || rule.status === 'not-measured') continue;
-      const existing = ruleMap.get(rule.ruleId);
-      if (existing) {
-        existing.count++;
-      } else {
-        const pageUrl = rule.details?.pageUrl as string | undefined;
-        ruleMap.set(rule.ruleId, {
-          ruleId: rule.ruleId,
-          ruleName: ruleMetadata?.[rule.ruleId]?.name ?? formatRuleIdAsName(rule.ruleId),
-          categoryId: cat.categoryId,
-          categoryName: CATEGORY_NAMES[cat.categoryId] ?? cat.categoryId,
-          status: rule.status,
-          message: rule.message,
-          pageUrl: pageUrl ?? null,
-          count: 1,
-        });
-      }
-    }
-    issues.push(...ruleMap.values());
-  }
-
-  // Sort: failures first, then by count descending
-  issues.sort((a, b) => {
-    if (a.status !== b.status) return a.status === 'fail' ? -1 : 1;
-    return b.count - a.count;
-  });
+  const issues: IssueRow[] = summarizeRules(result.categoryResults)
+    .filter((summary) => summary.status === 'fail' || summary.status === 'warn')
+    .map((summary) => ({
+      ruleId: summary.ruleId,
+      ruleName: ruleMetadata?.[summary.ruleId]?.name ?? formatRuleIdAsName(summary.ruleId),
+      categoryId: summary.categoryId, categoryName: CATEGORY_NAMES[summary.categoryId] ?? summary.categoryId,
+      status: summary.status as 'fail' | 'warn', label: issueLabel(summary), message: summary.message,
+      pageUrl: summary.pages[0] ?? null, count: summary.affectedPages,
+    }));
 
   if (issues.length === 0) {
     // A clean audit is a result, not an absence. Rendered as muted grey text it
@@ -163,7 +141,7 @@ export function IssuesTable({ result, ruleMetadata, onIssueClick }: IssuesTableP
                     backgroundColor: issue.status === 'fail' ? 'var(--color-fail-bg)' : 'var(--color-warn-bg)',
                   }}
                 >
-                  {issue.status === 'fail' ? 'Critical' : 'Warning'}
+                  {issue.label}
                 </span>
               </td>
               {result.crawledPages > 1 && (

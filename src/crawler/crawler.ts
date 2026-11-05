@@ -3,7 +3,8 @@ import { safeFetch, readResponseBytes, currentNetworkSession, withNetworkSession
 import * as cheerio from 'cheerio';
 import { fetchPage as defaultFetchPage, createAuditContext, extractLinks, type FetchPageOptions, type FetchResult } from './fetcher.js';
 import { rethrowIfAborted, throwIfAborted } from '../errors.js';
-import type { AssetInfo, AuditContext, CoreWebVitals, DiscoverySource, InboundEdge, RenderDiagnostics, SiteContext, SitePageInfo } from '../types.js';
+import type { AssetInfo, AuditContext, CoreWebVitals, DiscoverySource, InboundEdge, RenderDiagnostics, RenderQuality, SiteContext, SitePageInfo } from '../types.js';
+import { readHreflang } from '../analysis/hreflang.js';
 import { summarizeSchemaNodes } from '../rules/schema/utils.js';
 import { pageKindFrom } from '../rules/content/page-kind.js';
 import { countWords, extractMainContent } from '../rules/content/utils/text-extractor.js';
@@ -42,6 +43,7 @@ export interface CrawlProgress {
  * What a browser render contributes beyond the HTTP response.
  */
 export interface PageRenderResult {
+  renderQuality?: RenderQuality;
   mobileHtml?: string;
   mobileUnavailableReason?: string;
   unavailableReason?: string;
@@ -403,12 +405,14 @@ export class Crawler {
       let httpProtocol: string | undefined;
       let cwv: CoreWebVitals = {};
       let renderedHtml: string | undefined;
+      let renderQuality: RenderQuality | undefined;
       let diagnostics: RenderDiagnostics | undefined;
       let assets: AssetInfo[] | undefined;
       if (this.options.renderPage) {
         try {
           const rendered = await this.options.renderPage(url);
           cwv = rendered.cwv;
+          renderQuality = rendered.renderQuality;
           mobileHtml = rendered.mobileHtml;
           mobileUnavailableReason = rendered.mobileUnavailableReason;
           httpProtocol = rendered.httpProtocol;
@@ -430,6 +434,8 @@ export class Crawler {
       context.mobileRenderUnavailableReason = mobileUnavailableReason;
       context.httpProtocol = httpProtocol;
       context.renderUnavailableReason = unavailableReason;
+      context.renderQuality = renderQuality;
+      if (renderQuality?.state === 'incomplete') context.renderUnavailableReason = renderQuality.reason;
       const identity = this.normalizeUrl(context.url);
       const requested = this.normalizeUrl(url);
       if (identity !== requested) {
@@ -447,6 +453,7 @@ export class Crawler {
         let base = context.url;
         try { base = new URL(context.rendered$('base[href]').first().attr('href') ?? '', context.url).href; } catch { /* Use the document URL. */ }
         context.renderedLinks = extractLinks(context.rendered$, base, context.url).links;
+        if (renderQuality?.state === 'incomplete') context.rendered$ = undefined;
       }
       if (diagnostics) {
         context.renderDiagnostics = diagnostics;
@@ -604,16 +611,14 @@ export class Crawler {
     info.crawlAllowed = crawlAllowed;
     info.robotsEvidence = indexing;
 
-    $('link[rel="alternate"][hreflang]').each((_, el) => {
-      const code = $(el).attr('hreflang')?.trim();
-      const href = $(el).attr('href');
-      if (!code || !href) return;
+    for (const { hreflang: code, href } of readHreflang(page.context)) {
+      if (!code || !href) continue;
       try {
-        info.hreflangOut[code] = new URL(href, page.context.documentBaseUrl ?? page.context.url).href;
+        info.hreflangOut[code.toLowerCase()] = new URL(href, page.context.documentBaseUrl ?? page.context.url).href;
       } catch {
         // An unresolvable hreflang target is a per-page finding, not recorded here.
       }
-    });
+    }
 
     const h1 = $('h1').first().text().trim();
     if (h1) info.h1 = h1;

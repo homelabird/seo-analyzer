@@ -75,7 +75,7 @@ function isAppShell($: AuditContext['$']): boolean {
 export function readPageFacts(context: AuditContext): PageFacts {
   const { $, url } = context;
   const page = context.rendered$ ?? $;
-  const unread = !context.rendered$ && isAppShell($);
+  const unread = context.renderQuality?.state === 'incomplete' || !context.rendered$ && isAppShell($);
   return {
     noindex: readIndexingDirectives(context).noindex,
     robotsDisallowed: !new RobotsMatcher(context.robotsTxtContent ?? '', 'Googlebot').isAllowed(url),

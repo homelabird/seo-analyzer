@@ -11,6 +11,7 @@
 // not measured without a crawl; these five now do too.
 import { describe, it, expect, beforeEach } from 'vitest';
 import { createTestContext } from './test-context.js';
+import { prepareDuplicateComparisons } from '../analysis/content-duplicates.js';
 import { resetCrossPageState } from './registry.js';
 import { titleUniqueRule } from './core/title-unique.js';
 import { duplicateDescriptionRule } from './content/duplicate-description.js';
@@ -51,8 +52,10 @@ describe('cross-page rules without a crawl (ISSUE-011)', () => {
     ['content-duplicate-description', duplicateDescriptionRule],
     ['content-duplicate-exact', duplicateExactRule],
   ])('%s still compares pages in a crawl', async (_id, rule) => {
-    await rule.run({ ...single('https://example.com/a'), site: SITE });
-    const second = await rule.run({ ...single('https://example.com/b'), site: SITE });
+    const pages = [{ ...single('https://example.com/a'), site: SITE }, { ...single('https://example.com/b'), site: SITE }];
+    prepareDuplicateComparisons(pages);
+    await rule.run(pages[0]);
+    const second = await rule.run(pages[1]);
     expect(['warn', 'fail']).toContain(second.status);
   });
 });

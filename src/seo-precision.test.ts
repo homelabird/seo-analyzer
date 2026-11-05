@@ -1,6 +1,7 @@
 import { beforeEach, describe, expect, it } from 'vitest';
 import { load } from 'cheerio';
 import { createTestContext } from './rules/test-context.js';
+import { prepareDuplicateComparisons } from './analysis/content-duplicates.js';
 import { countWords, tokenize } from './rules/content/utils/text-extractor.js';
 import { readingLevelRule } from './rules/content/reading-level.js';
 import { keywordStuffingRule } from './rules/content/keyword-stuffing.js';
@@ -46,8 +47,9 @@ describe('SEO precision regressions', () => {
 
   it('compares substantial Korean near duplicates', async () => {
     const context = createTestContext(`<main>${korean}</main>`, { site: {} as SiteContext });
-    await duplicateNearRule.run(context);
-    expect((await duplicateNearRule.run({ ...context, url: 'https://example.com/copy' })).status).toBe('fail');
+    const pages = [context, { ...context, url: 'https://example.com/copy' }];
+    prepareDuplicateComparisons(pages);
+    expect((await duplicateNearRule.run(pages[1])).status).toBe('fail');
   });
 
   it('does not report insufficient near-duplicate evidence as a pass', async () => {

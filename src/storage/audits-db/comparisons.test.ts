@@ -136,4 +136,24 @@ describe('diffRules', () => {
     const legacy = diffRules([row('m', 'pass', '/', null)], [row('m', 'fail', '/', null)]);
     expect(legacy.regressed).toHaveLength(1);
   });
+
+  it('detects growth and fixes while the worst status remains fail', () => {
+    const batch = (affected: number) => Array.from({ length: 100 }, (_, i) => row('t', i < affected ? 'fail' : 'pass', `/${i}`));
+    const grown = diffRules(batch(1), batch(99));
+    expect(grown.regressed[0]).toMatchObject({ from: 'fail', to: 'fail', previousAffectedPages: 1, affectedPages: 99, previousMeasuredPages: 100, measuredPages: 100, newIssuePageCount: 98, regressedPageCount: 98, coverageChanged: false });
+    expect(grown.regressed[0].newIssuePages).toHaveLength(50);
+    expect(diffRules(batch(99), batch(1)).improved[0]).toMatchObject({ resolvedIssuePageCount: 98, improvedPageCount: 98 });
+  });
+
+  it('reports coverage without asserting a fix when failing URLs disappear', () => {
+    const diff = diffRules([row('t', 'fail', '/missing'), row('t', 'pass', '/shared')], [row('t', 'pass', '/shared')]);
+    expect(diff.improved).toHaveLength(0);
+    expect(diff.regressed).toHaveLength(0);
+    expect(diff.coverageChanges?.[0]).toMatchObject({ previousAffectedPages: 1, affectedPages: 0, coverageChanged: true });
+  });
+
+  it('detects same-count page severity changes even with another persistent failure', () => {
+    const diff = diffRules([row('t', 'fail', '/persistent'), row('t', 'warn', '/shared')], [row('t', 'fail', '/persistent'), row('t', 'fail', '/shared')]);
+    expect(diff.regressed[0]).toMatchObject({ affectedPages: 2, previousAffectedPages: 2, newIssuePageCount: 0, regressedPages: ['/shared'] });
+  });
 });

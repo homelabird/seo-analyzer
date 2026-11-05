@@ -160,7 +160,7 @@ describe('i18n Rules', () => {
       expect(result.details?.conflictCount).toBe(1);
     });
 
-    it('should fail when the same URL is targeted by multiple different language codes', async () => {
+    it('should allow a regional annotation and a language catchall to share a URL', async () => {
       const context = createContext(`
         <html><head>
           <link rel="alternate" hreflang="en" href="https://example.com/en/">
@@ -169,8 +169,8 @@ describe('i18n Rules', () => {
         </head></html>
       `);
       const result = await hreflangConflictingRule.run(context);
-      expect(result.status).toBe('fail');
-      const urlConflicts = result.details?.urlConflicts as Array<{
+      expect(result.status).toBe('pass');
+      const urlConflicts = result.details?.sharedTargets as Array<{
         url: string;
         hreflangs: string[];
       }>;
@@ -179,7 +179,7 @@ describe('i18n Rules', () => {
       expect(urlConflicts[0].hreflangs).toEqual(['en', 'en-us']);
     });
 
-    it('should fail when the page self-references under multiple different language codes', async () => {
+    it('should allow self-reference under regional and catchall codes', async () => {
       const context = createContext(
         `
         <html><head>
@@ -191,7 +191,7 @@ describe('i18n Rules', () => {
         'https://example.com/en/'
       );
       const result = await hreflangConflictingRule.run(context);
-      expect(result.status).toBe('fail');
+      expect(result.status).toBe('pass');
       expect(result.details?.selfReferencingLangs).toEqual(['en', 'en-gb']);
     });
 

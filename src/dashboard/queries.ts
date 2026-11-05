@@ -7,6 +7,7 @@
 
 import { sanitizeForOutput } from '../sanitize.js';
 import { isNotMeasured } from '../rules/define-rule.js';
+import { readAssessment } from '../analysis/issue-summary.js';
 import type { AuditsDatabase } from '../storage/audits-db/index.js';
 import type { AuditQueryOptions, DbAudit, HydratedAudit } from '../storage/types.js';
 import { toAuditSummary } from '../storage/audits-db/audits.js';
@@ -119,9 +120,12 @@ export function getAuditDetail(db: AuditsDatabase, auditId: string): AuditDetail
       score: s.score,
       weight: s.notMeasured ? 0 : 1,
       ...(s.details && { details: s.details }),
+      ...readAssessment({ details: s.details ?? undefined }),
       totalPages: s.totalPages,
       measuredPages: s.measuredPages,
       affectedPages: s.affectedPages,
+      failPages: s.failPages,
+      warnPages: s.warnPages,
       notMeasured: s.notMeasured,
       samplePages: s.samplePages,
     };

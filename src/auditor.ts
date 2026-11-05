@@ -1,5 +1,7 @@
 import { safeFetch, readResponseBytes, withNetworkSession, currentNetworkSession, validateNetworkUrl, isNetworkPolicyError } from './crawler/network.js';
 import { sanitizeForOutput } from './sanitize.js';
+import { prepareDuplicateComparisons } from './analysis/content-duplicates.js';
+import { readHreflang } from './analysis/hreflang.js';
 import type {
   AuditContext,
   AuditResult,
@@ -8,6 +10,7 @@ import type {
   CategoryDefinition,
   CoreWebVitals,
   RenderDiagnostics,
+  RenderQuality,
   AssetInfo,
   SiteContext,
   SitemapFetchResult,
@@ -400,6 +403,7 @@ export class Auditor {
     let renderUnavailableReason: string | undefined;
     let httpProtocol: string | undefined;
     let renderedHtml: string | undefined;
+    let renderQuality: RenderQuality | undefined;
     let rendered$: import('cheerio').CheerioAPI | undefined;
     let renderDiagnostics: RenderDiagnostics | undefined;
     let assets: AssetInfo[] | undefined;
@@ -414,6 +418,8 @@ export class Auditor {
           ...(this.options.signal && { signal: this.options.signal }),
         });
         cwv = pwResult.cwv;
+        renderQuality = pwResult.renderQuality;
+        if (renderQuality?.state === 'incomplete') renderUnavailableReason = renderQuality.reason;
         httpProtocol = pwResult.httpProtocol;
         renderDiagnostics = pwResult.diagnostics;
         assets = pwResult.assets;
@@ -432,7 +438,7 @@ export class Auditor {
               allowPrivate: this.options.allowPrivate,
               ...(this.options.signal && { signal: this.options.signal }),
             });
-            if (mobileResult.html) {
+            if (mobileResult.html && mobileResult.renderQuality?.state !== 'incomplete') {
               mobileHtml = mobileResult.html;
               const cheerio = await import('cheerio');
               mobile$ = cheerio.load(mobileHtml);
@@ -458,6 +464,7 @@ export class Auditor {
     const context = createAuditContext(url, fetchResult, cwv);
     context.httpProtocol = httpProtocol;
     context.renderUnavailableReason = renderUnavailableReason;
+    context.renderQuality = renderQuality;
     if (this.options.signal) {
       context.signal = this.options.signal;
     }
@@ -466,7 +473,7 @@ export class Auditor {
     await this.enrichContext(context, context.url);
     if (renderedHtml) {
       context.renderedHtml = renderedHtml;
-      context.rendered$ = rendered$;
+      context.rendered$ = renderQuality?.state === 'incomplete' ? undefined : rendered$;
     }
     if (renderDiagnostics) {
       context.renderDiagnostics = renderDiagnostics;
@@ -493,7 +500,7 @@ export class Auditor {
       1,
       buildPageSnapshot(context),
       this.runOptions(false, 1, 1),
-      { pages: [context.url], detail: 'per-page', ...(renderUnavailableReason && { unavailableMeasurements: [renderUnavailableReason] }) }
+      { pages: [context.url], detail: 'per-page', ...(renderQuality && { rendering: [{ url: context.url, ...renderQuality }] }), ...(renderUnavailableReason && { unavailableMeasurements: [renderUnavailableReason] }) }
     );
     return applyScoreCaps(result, pageCaps(readPageFacts(context), { staging: this.options.staging }));
   }
@@ -556,10 +563,12 @@ export class Auditor {
               let mobileUnavailableReason: string | undefined;
               if (this.options.mobileParity) {
                 try {
-                  mobileHtml = (await fetcher(pageUrl, this.options.timeout, {
+                  const mobileResult = await fetcher(pageUrl, this.options.timeout, {
                     mobile: true, allowPrivate: this.options.allowPrivate,
                     ...(this.options.signal && { signal: this.options.signal }),
-                  })).html;
+                  });
+                  if (mobileResult.renderQuality?.state === 'incomplete') mobileUnavailableReason = mobileResult.renderQuality.reason;
+                  else mobileHtml = mobileResult.html;
                 } catch (error) {
                   rethrowIfAborted(error, this.options.signal);
                   mobileUnavailableReason = error instanceof Error ? error.message : 'Mobile rendering failed';
@@ -568,6 +577,7 @@ export class Auditor {
               return {
                 mobileHtml, mobileUnavailableReason,
                 cwv: result.cwv,
+                renderQuality: result.renderQuality,
                 httpProtocol: result.httpProtocol,
                 html: result.html,
                 diagnostics: result.diagnostics,
@@ -610,6 +620,10 @@ export class Auditor {
           crawledPage.context.signal = this.options.signal;
         }
         this.applySitemapData(crawledPage.context, sitemapData);
+        const info = site.pages?.get(site.normalize(crawledPage.context.url));
+        if (info) for (const tag of readHreflang(crawledPage.context)) {
+          try { info.hreflangOut[tag.hreflang.toLowerCase()] = new URL(tag.href, crawledPage.context.documentBaseUrl ?? crawledPage.context.url).href; } catch { /* Invalid target is reported by the declaration rule. */ }
+        }
       }
     }
 
@@ -628,7 +642,9 @@ export class Auditor {
       crawledPages.filter((page) => !page.error).length,
       undefined,
       this.runOptions(true, maxPages, concurrency),
-      { pages: crawledPages.filter((p) => !p.error).map((p) => p.context.url), detail: 'per-page', crawl: site.coverage, unavailableMeasurements: crawledPages.flatMap((p) => p.context.renderUnavailableReason ? [`${p.context.url}: ${p.context.renderUnavailableReason}`] : []) }
+      { pages: crawledPages.filter((p) => !p.error).map((p) => p.context.url), detail: 'per-page', crawl: site.coverage,
+        rendering: crawledPages.flatMap((p) => p.context.renderQuality ? [{ url: p.context.url, ...p.context.renderQuality }] : []),
+        unavailableMeasurements: crawledPages.flatMap((p) => p.context.renderUnavailableReason ? [`${p.context.url}: ${p.context.renderUnavailableReason}`] : []) }
     );
     const start = crawledPages.find((page) => site.normalize(page.url) === site.entryUrl && !page.error);
     if (!start) return result;
@@ -654,6 +670,10 @@ export class Auditor {
   async auditPages(pages: CrawledPage[]): Promise<CategoryResult[]> {
     if (!currentNetworkSession()) return withNetworkSession(this.options, () => this.auditPages(pages));
     const crawledPages = pages;
+    if (this.categoriesToAudit.some((category) => category.id === 'content') &&
+      ['content-duplicate-exact', 'content-duplicate-near'].some((id) => isRuleEnabled(id, this.options.enableRules, this.options.disableRules))) {
+      prepareDuplicateComparisons(pages.filter((page) => !page.error).map((page) => page.context));
+    }
     // Collect all rule results per category across all pages
     const categoryRuleResults = new Map<string, RuleResult[]>();
 

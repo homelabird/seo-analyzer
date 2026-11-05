@@ -77,6 +77,13 @@ describe('Crawler — rendered DOM reaches the audit context', () => {
     expect(context.rendered$).toBeUndefined();
   });
 
+  it('retains partial HTML evidence but does not score it as completed rendering', async () => {
+    const context = await crawlOnce(async () => ({ html: RENDERED_HTML, cwv: {}, renderQuality: { state: 'incomplete', waitedMs: 5000, contentCharacters: 0, reason: 'Content not ready' } }));
+    expect(context.renderedHtml).toBe(RENDERED_HTML);
+    expect(context.rendered$).toBeUndefined();
+    expect(context.renderUnavailableReason).toBe('Content not ready');
+  });
+
   it('survives a renderer that throws, keeping the HTTP response', async () => {
     const context = await crawlOnce(async () => {
       throw new Error('browser crashed');

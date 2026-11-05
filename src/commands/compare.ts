@@ -37,7 +37,9 @@ function statusGlyph(status: RuleChange['to']): string {
 /** "on 3 of 12 pages" for crawl audits, empty for single-page ones */
 function pageCount(change: RuleChange): string {
   if (change.totalPages <= 1) return '';
-  return `on ${change.affectedPages} of ${change.totalPages} pages`;
+  const counts = `${change.previousAffectedPages ?? '?'} → ${change.affectedPages} affected (${change.previousMeasuredPages ?? '?'} → ${change.measuredPages ?? change.totalPages} measured)`;
+  const changes = `${change.regressedPageCount ?? 0} worsened, ${change.improvedPageCount ?? 0} improved (${change.newIssuePageCount ?? 0} newly affected, ${change.resolvedIssuePageCount ?? 0} resolved)`;
+  return `${counts}; ${changes}${change.coverageChanged ? '; coverage changed' : ''}`;
 }
 
 /** A short arrow showing which way a score moved */
@@ -184,7 +186,7 @@ export async function runCompare(
     // Reads only: a comparison is computed on demand here and stored once,
     // by the save path, when the audit is written.
     const comparison = db.buildComparison(current.id, previous.id);
-    const { regressed, improved, added, removed } = diffRules(
+    const { regressed, improved, added, removed, coverageChanges = [] } = diffRules(
       db.getAllResults(previous.id),
       db.getAllResults(current.id)
     );
@@ -206,6 +208,7 @@ export async function runCompare(
             scoreDelta,
             engineChanged,
             comparable: !hasMaterialDifference(profileDifferences),
+            scoreComparable: !hasMaterialDifference(profileDifferences) && coverageChanges.length === 0,
             runDifferences: profileDifferences,
             engineVersions: {
               current: current.engineVersion,
@@ -216,6 +219,7 @@ export async function runCompare(
             improved,
             added,
             removed,
+            coverageChanges,
           },
           null,
           2
@@ -301,7 +305,7 @@ export async function runCompare(
         console.log(chalk.green.bold(`  Improved (${improved.length})`));
         for (const change of improved.slice(0, 10)) {
           console.log(
-            `    ${chalk.green('✓')} ${chalk.bold(change.ruleId)} ${chalk.dim(`${change.from} → ${change.to}`)}`
+            `    ${chalk.green('✓')} ${chalk.bold(change.ruleId)} ${chalk.dim(`${change.from} → ${change.to} ${pageCount(change)}`)}`
           );
         }
         if (improved.length > 10) {
@@ -332,7 +336,13 @@ export async function runCompare(
         console.log();
       }
 
-      if (regressed.length === 0 && improved.length === 0 && added.length === 0 && removed.length === 0) {
+      if (coverageChanges.length > 0) {
+        console.log(chalk.bold(`  Measured URL coverage changed (${coverageChanges.length})`));
+        console.log(chalk.dim('    The overall score delta may reflect changed coverage; shared measured URLs determine rule regressions.'));
+        for (const change of coverageChanges.slice(0, 10)) console.log(`    ${chalk.dim('·')} ${chalk.bold(change.ruleId)} ${chalk.dim(pageCount(change))}`);
+        console.log();
+      }
+      if (regressed.length === 0 && improved.length === 0 && added.length === 0 && removed.length === 0 && coverageChanges.length === 0) {
         console.log(chalk.dim('  No rules changed status.'));
         console.log();
       }
@@ -342,7 +352,7 @@ export async function runCompare(
     // baseline came from a surface with different defaults is the bug this
     // check exists to avoid, not a signal worth acting on.
     const notComparable = hasMaterialDifference(profileDifferences);
-    const regressionFound = !notComparable && (scoreDelta < 0 || regressed.length > 0);
+    const regressionFound = !notComparable && (scoreDelta < 0 && coverageChanges.length === 0 || regressed.length > 0);
     if (options.failOnRegression && notComparable) {
       // With --json, stdout is the JSON document alone (it already says
       // comparable: false); the note goes to stderr for whoever reads the log.
