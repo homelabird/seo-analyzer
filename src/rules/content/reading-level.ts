@@ -1,6 +1,6 @@
 import type { AuditContext } from '../../types.js';
-import { defineRule, pass, warn } from '../define-rule.js';
-import { extractMainContent, tokenize, countSentences } from './utils/text-extractor.js';
+import { defineRule, pass, warn, notMeasured } from '../define-rule.js';
+import { extractMainContent, tokenize, countSentences, supportsEnglishAnalysis } from './utils/text-extractor.js';
 import {
   calculateFleschKincaid,
   getReadingLevelDescription,
@@ -34,16 +34,20 @@ export const readingLevelRule = defineRule({
   category: 'content',
   weight: 3,
   run: async (context: AuditContext) => {
-    const { $ } = context;
+    const $ = context.rendered$ ?? context.$;
 
     // Extract main content
     const mainContent = extractMainContent($);
     const words = tokenize(mainContent);
     const sentenceCount = countSentences(mainContent);
 
+    if (!supportsEnglishAnalysis($, mainContent)) {
+      return notMeasured('content-reading-level', 'Flesch readability is calibrated for English only', { wordCount: words.length, reason: 'unsupported-language' });
+    }
+
     // Skip check for very short content
     if (words.length < MIN_WORDS_FOR_CHECK) {
-      return pass(
+      return notMeasured(
         'content-reading-level',
         `Content too short for readability analysis (${words.length} words)`,
         {

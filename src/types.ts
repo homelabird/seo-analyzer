@@ -74,6 +74,8 @@ export interface LinkInfo {
    * body copy. Absent on links built before this field existed.
    */
   inChrome?: boolean;
+  /** Where this edge was observed during the crawl. */
+  source?: 'raw' | 'rendered';
   /** HTTP status code if checked */
   statusCode?: number;
 }
@@ -338,10 +340,8 @@ export interface AssetInfo {
   /**
    * Transfer size in bytes when known (encoded body size).
    *
-   * Currently never populated: Playwright exposes no transfer-size metric on a
-   * completed response without fetching the body again (`response.body()`), and
-   * double-fetching every subresource would distort the very page load being
-   * measured. Rules should fall back to the `content-length` header when present.
+   * Read from Playwright request.sizes() after the request finishes. Absent
+   * when unavailable; rules fall back to content-length when present.
    */
   transferBytes?: number;
 }
@@ -385,6 +385,8 @@ export interface InboundEdge {
    * Absent when the crawl did not record placement.
    */
   chrome?: boolean;
+  /** DOM representation carrying this edge. */
+  source?: 'raw' | 'rendered';
 }
 
 export interface SiteContext {
@@ -435,6 +437,12 @@ export interface SiteContext {
  * which is exactly what sitemap cross-reference rules need to spot timeouts.
  */
 export interface SitePageInfo {
+  /** Unknown when robots.txt was not successfully evaluated. */
+  crawlAllowed?: boolean;
+  /** These describe directives, not actual search-engine index membership. */
+  indexingAllowedByDirectives?: boolean;
+  followAllowedByDirectives?: boolean;
+  robotsEvidence?: ReturnType<typeof import('./analysis/robots.js').readIndexingDirectives>;
   /** Final HTTP status of the page fetch; 0 when it failed or timed out */
   statusCode: number;
   /**
@@ -448,9 +456,8 @@ export interface SitePageInfo {
   /** `nofollow` (or `none`) in the meta robots tag or X-Robots-Tag header */
   nofollow: boolean;
   /**
-   * Whether robots.txt disallows this URL. Best-effort: the crawler only
-   * keeps a robots matcher when `respectRobots` is on and robots.txt was
-   * reachable, so this is false whenever the answer is unknown.
+   * Compatibility flag for robots.txt restrictions against Googlebot.
+   * False also covers unknown evidence; crawlAllowed preserves that distinction.
    */
   disallowed: boolean;
   /** hreflang code → resolved absolute target URL, from `link[rel=alternate][hreflang]` */
@@ -459,6 +466,8 @@ export interface SitePageInfo {
   h1?: string;
   /** Document title, trimmed; undefined when absent or empty */
   title?: string;
+  /** Primary declared language, when available, for comparable length samples. */
+  language?: string;
   /** Visible word count, excluding nav, footer, and scripts */
   wordCount?: number;
   /** Coarse page kind used to compare a page with others of the same kind */
@@ -499,6 +508,7 @@ export interface AuditContext {
   tls?: { validTo?: string; protocol?: string };
   httpProtocol?: string;
   renderUnavailableReason?: string;
+  mobileRenderUnavailableReason?: string;
   /** Original navigation address, before redirects. */
   requestedUrl?: string;
   /** Final document URL, overridden by the first valid HTML base href. */
@@ -509,6 +519,8 @@ export interface AuditContext {
   html: string;
   /** Cheerio instance for DOM querying */
   $: CheerioAPI;
+  /** Links observed after rendering; raw links remain in links. */
+  renderedLinks?: LinkInfo[];
   /** HTTP response headers */
   headers: Record<string, string>;
   /** HTTP status code */
@@ -724,7 +736,7 @@ export interface PageSnapshot {
  * Bump on any change a consumer could notice. 1 is the shape shipped through
  * 3.5.0, so a payload with no `schemaVersion` should be read as 1.
  */
-export const AUDIT_SCHEMA_VERSION = 2;
+export const AUDIT_SCHEMA_VERSION = 3;
 
 /**
  * The options an audit actually ran with.
@@ -735,6 +747,8 @@ export const AUDIT_SCHEMA_VERSION = 2;
  * to be able to say so.
  */
 export interface AuditRunOptions {
+  /** Whether the crawl included sitemap URLs as seeds. Absent means false. */
+  crawlSitemap?: boolean;
   /** Private-network access was explicitly enabled for this run. */
   allowPrivate?: boolean;
   crawl: boolean;

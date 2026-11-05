@@ -3,9 +3,13 @@ import { defineRule, pass, warn, fail } from '../define-rule.js';
 import { findItemsByType, getMissingFields, hasField } from './utils.js';
 
 const PRODUCT_TYPES = ['Product', 'ProductGroup'];
-const REQUIRED = ['name', 'image'];
-const RECOMMENDED = ['description', 'brand', 'sku', 'gtin', 'aggregateRating', 'review'];
-const OFFER_REQUIRED = ['price', 'priceCurrency', 'availability'];
+const REQUIRED = ['name'];
+const RECOMMENDED = ['image', 'description', 'brand', 'sku', 'gtin', 'aggregateRating', 'review'];
+const AVAILABILITY = new Set(['BackOrder', 'Discontinued', 'InStock', 'InStoreOnly', 'LimitedAvailability', 'OnlineOnly', 'OutOfStock', 'PreOrder', 'PreSale', 'SoldOut']);
+
+function validPrice(value: unknown): boolean {
+  return (typeof value === 'string' && value.trim() !== '' || typeof value === 'number') && Number.isFinite(Number(value)) && Number(value) >= 0;
+}
 
 /**
  * Rule: Product Schema
@@ -20,7 +24,7 @@ export const structuredDataProductRule = defineRule({
   category: 'schema',
   weight: 12,
   run: (context: AuditContext) => {
-    const { $ } = context;
+    const $ = context.rendered$ ?? context.$;
     const products = findItemsByType($, PRODUCT_TYPES);
 
     if (products.length === 0) {
@@ -44,31 +48,32 @@ export const structuredDataProductRule = defineRule({
         const offerList = Array.isArray(offers) ? offers : [offers];
 
         for (const offer of offerList) {
-          if (typeof offer !== 'object' || offer === null) continue;
+          if (typeof offer !== 'object' || offer === null) { issues.push('Offer must be an object'); continue; }
           const o = offer as Record<string, unknown>;
-
-          for (const field of OFFER_REQUIRED) {
-            if (!o[field]) {
-              issues.push(`Offer missing ${field}`);
-            }
+          if (o['@id'] && Object.keys(o).length === 1) {
+            warnings.push('Offer is an @id reference; validate the referenced node');
+            continue;
           }
-
+          const priceSpecification = typeof o.priceSpecification === 'object' && o.priceSpecification !== null
+            ? o.priceSpecification as Record<string, unknown> : {};
+          const aggregate = o['@type'] === 'AggregateOffer';
+          if (!validPrice(aggregate ? o.lowPrice : o.price ?? priceSpecification.price)) issues.push(`Offer missing or invalid ${aggregate ? 'lowPrice' : 'price'}`);
+          const currency = o.priceCurrency ?? priceSpecification.priceCurrency;
+          if (!currency) {
+            if (aggregate) issues.push('AggregateOffer missing priceCurrency');
+            else warnings.push('Offer missing recommended priceCurrency');
+          } else if (typeof currency !== 'string' || !/^[A-Z]{3}$/.test(currency)) issues.push('Offer priceCurrency must be a three-letter currency code');
           // Check valid availability values
           if (o.availability) {
-            const validAvailability = [
-              'InStock', 'OutOfStock', 'PreOrder', 'BackOrder',
-              'https://schema.org/InStock', 'https://schema.org/OutOfStock',
-              'https://schema.org/PreOrder', 'https://schema.org/BackOrder',
-            ];
-            const avail = String(o.availability);
-            const isValid = validAvailability.some((v) => avail.includes(v.replace('https://schema.org/', '')));
+            const avail = String(o.availability).replace(/^https?:\/\/schema\.org\//, '');
+            const isValid = AVAILABILITY.has(avail);
             if (!isValid) {
               warnings.push('availability should use schema.org ItemAvailability values');
             }
           }
         }
-      } else {
-        issues.push('Product missing offers (required for rich results)');
+      } else if (!hasField(product, 'review') && !hasField(product, 'aggregateRating') && !(product.type === 'ProductGroup' && hasField(product, 'hasVariant'))) {
+        issues.push('Product snippet requires one of review, aggregateRating, or offers');
       }
 
       const missingRecommended = getMissingFields(product, RECOMMENDED);
@@ -80,6 +85,7 @@ export const structuredDataProductRule = defineRule({
     if (issues.length > 0) {
       return fail('schema-product', issues.slice(0, 3).join('; '), {
         productCount: products.length,
+        profile: 'product-snippet',
         issues,
         warnings,
       });
@@ -88,6 +94,7 @@ export const structuredDataProductRule = defineRule({
     if (warnings.length > 0) {
       return warn('schema-product', 'Product schema valid with suggestions', {
         productCount: products.length,
+        profile: 'product-snippet',
         warnings,
       });
     }

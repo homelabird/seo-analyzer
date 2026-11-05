@@ -48,6 +48,10 @@ function createAsset(overrides: Partial<AssetInfo>): AssetInfo {
 }
 
 describe('assetContentLength', () => {
+  it('uses observed encoded bytes when the header is absent or disagrees', () => {
+    expect(assetContentLength(createAsset({ transferBytes: 4200 }))).toBe(4200);
+    expect(assetContentLength(createAsset({ transferBytes: 0, headers: { 'content-length': '500' } }))).toBe(0);
+  });
   it('reads the header when present', () => {
     expect(assetContentLength(createAsset({ headers: { 'content-length': '4096' } }))).toBe(4096);
   });

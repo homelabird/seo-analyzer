@@ -1,3 +1,4 @@
+import { extractTypedItems, hasField } from './utils.js';
 import type { AuditContext } from '../../types.js';
 import { defineRule, pass, warn, fail, notMeasured } from '../define-rule.js';
 
@@ -10,16 +11,16 @@ const TYPE_REQUIRED_FIELDS: Record<
   { required: string[]; recommended: string[] }
 > = {
   Article: {
-    required: ['headline', 'author', 'datePublished'],
-    recommended: ['image', 'publisher', 'dateModified', 'description'],
+    required: [],
+    recommended: ['headline', 'author', 'datePublished', 'image', 'publisher', 'dateModified', 'description'],
   },
   NewsArticle: {
-    required: ['headline', 'author', 'datePublished'],
-    recommended: ['image', 'publisher', 'dateModified', 'description'],
+    required: [],
+    recommended: ['headline', 'author', 'datePublished', 'image', 'publisher', 'dateModified', 'description'],
   },
   BlogPosting: {
-    required: ['headline', 'author', 'datePublished'],
-    recommended: ['image', 'publisher', 'dateModified', 'description'],
+    required: [],
+    recommended: ['headline', 'author', 'datePublished', 'image', 'publisher', 'dateModified', 'description'],
   },
   Product: {
     required: ['name'],
@@ -98,41 +99,6 @@ interface FieldValidation {
 }
 
 /**
- * Extracts all items with @type from JSON-LD (handles @graph)
- */
-function extractTypedItems(data: unknown): Array<{ type: string; fields: string[] }> {
-  const items: Array<{ type: string; fields: string[] }> = [];
-
-  if (!data || typeof data !== 'object') {
-    return items;
-  }
-
-  const obj = data as Record<string, unknown>;
-
-  // Check direct @type
-  if (obj['@type']) {
-    const types = Array.isArray(obj['@type'])
-      ? (obj['@type'] as string[])
-      : [obj['@type'] as string];
-
-    const fields = Object.keys(obj).filter((k) => !k.startsWith('@'));
-
-    for (const type of types) {
-      items.push({ type, fields });
-    }
-  }
-
-  // Check @graph array
-  if (Array.isArray(obj['@graph'])) {
-    for (const item of obj['@graph']) {
-      items.push(...extractTypedItems(item));
-    }
-  }
-
-  return items;
-}
-
-/**
  * Rule: Check common required fields based on type
  */
 export const structuredDataRequiredFieldsRule = defineRule({
@@ -143,7 +109,7 @@ export const structuredDataRequiredFieldsRule = defineRule({
   category: 'schema',
   weight: 25,
   run: async (context: AuditContext) => {
-    const { $ } = context;
+    const $ = context.rendered$ ?? context.$;
 
     const jsonLdScripts = $('script[type="application/ld+json"]');
 
@@ -174,7 +140,7 @@ export const structuredDataRequiredFieldsRule = defineRule({
         const typedItems = extractTypedItems(parsed);
 
         for (const item of typedItems) {
-          const typeSpec = TYPE_REQUIRED_FIELDS[item.type];
+          const typeSpec = Object.hasOwn(TYPE_REQUIRED_FIELDS, item.type) ? TYPE_REQUIRED_FIELDS[item.type] : undefined;
 
           if (!typeSpec) {
             unknownTypes++;
@@ -184,10 +150,10 @@ export const structuredDataRequiredFieldsRule = defineRule({
           typesChecked++;
 
           const missingRequired = typeSpec.required.filter(
-            (field) => !item.fields.includes(field)
+            (field) => !hasField(item, field)
           );
           const missingRecommended = typeSpec.recommended.filter(
-            (field) => !item.fields.includes(field)
+            (field) => !hasField(item, field)
           );
 
           totalMissingRequired += missingRequired.length;
@@ -207,7 +173,7 @@ export const structuredDataRequiredFieldsRule = defineRule({
 
     if (typesChecked === 0) {
       if (unknownTypes > 0) {
-        return warn(
+        return notMeasured(
           'schema-required-fields',
           `Found ${unknownTypes} schema type(s) that are not in the validation list`,
           {
@@ -216,7 +182,7 @@ export const structuredDataRequiredFieldsRule = defineRule({
           }
         );
       }
-      return warn(
+      return notMeasured(
         'schema-required-fields',
         'No recognized schema.org types found to validate',
         { typesChecked: 0 }

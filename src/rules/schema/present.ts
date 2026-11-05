@@ -12,7 +12,7 @@ export const structuredDataPresentRule = defineRule({
   category: 'schema',
   weight: 25,
   run: async (context: AuditContext) => {
-    const { $ } = context;
+    const $ = context.rendered$ ?? context.$;
 
     // Check for JSON-LD structured data
     const jsonLdScripts = $('script[type="application/ld+json"]');

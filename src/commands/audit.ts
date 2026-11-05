@@ -37,6 +37,7 @@ export const OUTPUT_FORMATS = ['console', 'json', 'html', 'markdown', 'llm'] as 
 export type OutputFormat = (typeof OUTPUT_FORMATS)[number];
 
 export interface AuditOptions {
+  sitemap?: boolean;
   allowPrivate?: boolean;
   categories?: string[];
   json: boolean;
@@ -183,7 +184,7 @@ export function isDocumentFormat(outputFormat: string): boolean {
 }
 
 export async function runAudit(url: string, options: AuditOptions): Promise<void> {
-  const isCrawlMode = options.crawl;
+  const isCrawlMode = options.crawl || options.sitemap === true;
   const isVerbose = options.verbose;
   const measureCwv = options.cwv !== false;
   // Mobile parity needs a browser render, so --mobile implies CWV rendering.
@@ -305,6 +306,7 @@ export async function runAudit(url: string, options: AuditOptions): Promise<void
 
     // Create auditor with options and callbacks
     const auditor = new Auditor({
+      crawlSitemap: options.sitemap === true,
       categories: selectedCategories,
       allowPrivate: config.crawler.allow_private,
       perHostConcurrency: config.crawler.per_host_concurrency,

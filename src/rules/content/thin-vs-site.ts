@@ -42,14 +42,16 @@ export const thinVsSiteRule = defineRule({
     const kind: PageKind = own?.pageKind ?? pageKindFrom([], context.url);
     const words = own?.wordCount ?? countWords(extractMainContent(context.$));
 
+    const language = own?.language ?? context.$('html').attr('lang')?.trim().toLowerCase().split('-')[0];
     const sample: number[] = [];
     for (const info of pages.values()) {
       if ((info.pageKind ?? 'other') !== kind) continue;
+      if (info.language !== language) continue;
       if (typeof info.wordCount === 'number') sample.push(info.wordCount);
     }
 
     if (sample.length < MIN_SAMPLE) {
-      return pass('content-thin-vs-site', `Fewer than ${MIN_SAMPLE} ${kind} pages to compare`, {
+      return notMeasured('content-thin-vs-site', `Fewer than ${MIN_SAMPLE} ${kind} pages to compare`, {
         kind,
         words,
         sample: sample.length,

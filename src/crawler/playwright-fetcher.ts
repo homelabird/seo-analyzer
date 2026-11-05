@@ -322,9 +322,19 @@ function buildAssetInfo(
  * @param page - The page about to be navigated
  * @returns The array that fills as responses arrive
  */
+const pendingAssetSizes = new WeakMap<AssetInfo[], Set<Promise<void>>>();
+
+/** Wait for size readings already started by completed requests. */
+export async function settleAssetSizes(assets: AssetInfo[]): Promise<void> {
+  await Promise.all(pendingAssetSizes.get(assets) ?? []);
+}
+
 export function collectAssets(page: Page): AssetInfo[] {
   const assets: AssetInfo[] = [];
   const statusByRequest = new Map<Request, number>();
+  const byRequest = new WeakMap<Request, AssetInfo>();
+  const pending = new Set<Promise<void>>();
+  pendingAssetSizes.set(assets, pending);
 
   page.on('response', (response) => {
     const request = response.request();
@@ -334,7 +344,22 @@ export function collectAssets(page: Page): AssetInfo[] {
     if (request.redirectedTo()) return;
     if (assets.length >= MAX_ASSETS) return;
 
-    assets.push(buildAssetInfo(response, statusByRequest));
+    const asset = buildAssetInfo(response, statusByRequest);
+    assets.push(asset);
+    byRequest.set(request, asset);
+  });
+
+  page.on('requestfinished', (request) => {
+    const asset = byRequest.get(request);
+    if (!asset) return;
+    const reading = (async () => {
+      try {
+        const sizes = await request.sizes();
+        if (Number.isFinite(sizes.responseBodySize) && sizes.responseBodySize >= 0) asset.transferBytes = sizes.responseBodySize;
+      } catch { /* Failed size collection stays unknown; no extra download. */ }
+    })();
+    pending.add(reading);
+    void reading.finally(() => pending.delete(reading));
   });
 
   return assets;
@@ -561,6 +586,7 @@ export async function fetchPageWithPlaywright(
 
     // Measure Core Web Vitals
     const cwv = await measureCoreWebVitals(page);
+    await settleAssetSizes(assets);
     if (options.simulateInteraction && cwv.inp !== undefined) {
       cwv.inpSynthetic = true;
     }

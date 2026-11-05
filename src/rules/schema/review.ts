@@ -14,7 +14,7 @@ export const structuredDataReviewRule = defineRule({
   category: 'schema',
   weight: 10,
   run: (context: AuditContext) => {
-    const { $ } = context;
+    const $ = context.rendered$ ?? context.$;
     const reviews = findItemsByType($, 'Review');
     const aggregateRatings = findItemsByType($, 'AggregateRating');
 

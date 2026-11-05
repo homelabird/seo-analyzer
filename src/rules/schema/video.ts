@@ -17,7 +17,7 @@ export const structuredDataVideoRule = defineRule({
   category: 'schema',
   weight: 10,
   run: (context: AuditContext) => {
-    const { $ } = context;
+    const $ = context.rendered$ ?? context.$;
     const videos = findItemsByType($, 'VideoObject');
 
     if (videos.length === 0) {

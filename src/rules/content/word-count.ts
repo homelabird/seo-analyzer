@@ -1,6 +1,6 @@
 import type { AuditContext } from '../../types.js';
-import { defineRule, pass, warn, fail } from '../define-rule.js';
-import { extractMainContent, countWords } from './utils/text-extractor.js';
+import { defineRule, pass, warn, fail, notMeasured } from '../define-rule.js';
+import { extractMainContent, countWords, supportsEnglishAnalysis } from './utils/text-extractor.js';
 
 /**
  * Thresholds for word count
@@ -23,11 +23,14 @@ export const wordCountRule = defineRule({
   category: 'content',
   weight: 4,
   run: async (context: AuditContext) => {
-    const { $ } = context;
+    const $ = context.rendered$ ?? context.$;
 
     // Extract main content (excludes nav, footer, scripts, etc.)
     const mainContent = extractMainContent($);
     const wordCount = countWords(mainContent);
+    if (mainContent.trim() && !supportsEnglishAnalysis($, mainContent)) {
+      return notMeasured('content-word-count', 'Word count observed; absolute English length thresholds do not apply to this language', { wordCount, reason: 'unsupported-language' });
+    }
 
     const details = {
       wordCount,

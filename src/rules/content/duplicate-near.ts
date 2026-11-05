@@ -1,7 +1,7 @@
 import type { AuditContext } from '../../types.js';
 import { defineRule, pass, warn, fail, notMeasured } from '../define-rule.js';
 import { registerResettable } from '../registry.js';
-import { extractMainContent } from './utils/text-extractor.js';
+import { extractMainContent, tokenize } from './utils/text-extractor.js';
 
 /**
  * Similarity thresholds for near-duplicate detection
@@ -56,12 +56,7 @@ export function getNearDuplicateRegistryStats(): {
  * all consecutive 3-word sequences as a Set for Jaccard comparison.
  */
 function extractTrigrams(text: string): Set<string> {
-  const words = text
-    .toLowerCase()
-    .replace(/[^a-z0-9\s]/g, '')
-    .split(/\s+/)
-    .filter((w) => w.length > 0)
-    .slice(0, MAX_WORDS);
+  const words = tokenize(text).slice(0, MAX_WORDS);
 
   const trigrams = new Set<string>();
 
@@ -125,14 +120,15 @@ export const duplicateNearRule = defineRule({
       return notMeasured('content-duplicate-near', 'Near-duplicate detection needs other pages to compare against - run with --crawl');
     }
 
-    const { $, url } = context;
+    const $ = context.rendered$ ?? context.$;
+    const { url } = context;
 
     // Main content only: the first 500 words of the whole body are site
     // navigation on most sites, which made every page "similar" to the next.
     const bodyText = extractMainContent($).replace(/\s+/g, ' ').trim();
 
     if (!bodyText || bodyText.length < 100) {
-      return pass(
+      return notMeasured(
         'content-duplicate-near',
         'Page has insufficient content for near-duplicate detection',
         {
@@ -147,8 +143,7 @@ export const duplicateNearRule = defineRule({
 
     // Need at least a few trigrams for meaningful comparison
     if (trigrams.size < 5) {
-      nearDuplicateRegistry.push({ url, trigrams });
-      return pass(
+      return notMeasured(
         'content-duplicate-near',
         'Page has too few word trigrams for reliable comparison',
         {

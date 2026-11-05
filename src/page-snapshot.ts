@@ -1,3 +1,4 @@
+import { countWords } from './rules/content/utils/text-extractor.js';
 import type { AuditContext, PageSnapshot, SnapshotHeading } from './types.js';
 import { findOgTag } from './rules/social/open-graph.js';
 import { DOCUMENT_TITLE } from './rules/document-title.js';
@@ -53,7 +54,7 @@ export function buildPageSnapshot(context: AuditContext): PageSnapshot {
   // Text-to-HTML ratio uses the body only: <head> markup is never rendered
   // text, so counting it would understate every page equally.
   const bodyText = visibleBodyText($);
-  const words = bodyText ? bodyText.split(' ').length : 0;
+  const words = countWords(bodyText);
 
   return {
     title: clean($(DOCUMENT_TITLE).first().text()),

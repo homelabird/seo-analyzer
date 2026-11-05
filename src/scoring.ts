@@ -77,12 +77,14 @@ export function calculateCategoryScore(results: RuleResult[]): number {
  *     cannot say "nothing else matters": a noindex page scored 94 and a
  *     one-word page 85, held up by server checks that read the same on every
  *     page.
+ * 6 — Unicode text analysis, scoped indexing directives and evidence-based
+ *     rendering/schema corrections; insufficient samples are unmeasured.
  * 5 — exclude entirely unmeasured categories; evidence-based rule corrections.
  * 4 — a crawl is capped when its start page cannot be indexed. A site that
  *     was noindex on every page crawled to 92, and one behind `Disallow: /`
  *     to 93, while a single-page audit of either scored 20.
  */
-export const SCORING_VERSION = 5;
+export const SCORING_VERSION = 6;
 
 /**
  * Calculate the overall audit score from category results

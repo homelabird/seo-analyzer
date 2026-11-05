@@ -114,6 +114,8 @@ export function markSitemapDiscoverySources(
  * Options for configuring the Auditor
  */
 export interface AuditorOptions {
+  /** Include sitemap-only URLs in a crawl's initial frontier. */
+  crawlSitemap?: boolean;
   /** Explicit permission to connect to local/intranet addresses. */
   allowPrivate?: boolean;
   /** Maximum simultaneous HTTP requests to each host. */
@@ -208,6 +210,7 @@ export class Auditor {
 
   constructor(options: AuditorOptions = {}) {
     this.options = {
+      crawlSitemap: options.crawlSitemap ?? false,
       allowPrivate: options.allowPrivate ?? false,
       perHostConcurrency: options.perHostConcurrency ?? 2,
       concurrency: options.concurrency ?? 3,
@@ -407,6 +410,7 @@ export class Auditor {
       try {
         const pwResult = await fetcher(new URL(url).username || new URL(url).password ? url : (fetchResult.finalUrl ?? url), this.options.timeout, {
           simulateInteraction: this.options.simulateInteraction,
+          allowPrivate: this.options.allowPrivate,
           ...(this.options.signal && { signal: this.options.signal }),
         });
         cwv = pwResult.cwv;
@@ -420,13 +424,12 @@ export class Auditor {
           rendered$ = cheerio.load(renderedHtml);
         }
 
-        // Mobile-first parity: a second render at a mobile viewport, while the
-        // shared browser is still open. Uses the real Playwright renderer
-        // directly because a custom browserFetcher has no mobile mode.
+        // Compare mobile and desktop while the shared browser is still open.
         if (this.options.mobileParity) {
           try {
-            const mobileResult = await fetchPageWithPlaywright(url, this.options.timeout, {
+            const mobileResult = await fetcher(url, this.options.timeout, {
               mobile: true,
+              allowPrivate: this.options.allowPrivate,
               ...(this.options.signal && { signal: this.options.signal }),
             });
             if (mobileResult.html) {
@@ -524,6 +527,8 @@ export class Auditor {
     // Create crawler with browser rendering if enabled
     const fetcher = this.options.browserFetcher ?? fetchPageWithPlaywright;
     const crawler = new Crawler({
+      seedUrls: this.options.crawlSitemap ? sitemapData.urls : undefined,
+      robotsTxtContent,
       allowPrivate: this.options.allowPrivate,
       perHostConcurrency: this.options.perHostConcurrency,
       maxPages,
@@ -540,12 +545,28 @@ export class Auditor {
         ? async (pageUrl: string) => {
             try {
               const result = await fetcher(pageUrl, this.options.timeout, {
+                allowPrivate: this.options.allowPrivate,
+                simulateInteraction: this.options.simulateInteraction,
                 ...(this.options.signal && { signal: this.options.signal }),
               });
               // `html` is what the JS-rendering rules read. Leaving it out here
               // is what made all eleven of them report "rendered DOM not
               // available" on every page of every crawl.
+              let mobileHtml: string | undefined;
+              let mobileUnavailableReason: string | undefined;
+              if (this.options.mobileParity) {
+                try {
+                  mobileHtml = (await fetcher(pageUrl, this.options.timeout, {
+                    mobile: true, allowPrivate: this.options.allowPrivate,
+                    ...(this.options.signal && { signal: this.options.signal }),
+                  })).html;
+                } catch (error) {
+                  rethrowIfAborted(error, this.options.signal);
+                  mobileUnavailableReason = error instanceof Error ? error.message : 'Mobile rendering failed';
+                }
+              }
               return {
+                mobileHtml, mobileUnavailableReason,
                 cwv: result.cwv,
                 httpProtocol: result.httpProtocol,
                 html: result.html,
@@ -769,6 +790,7 @@ export class Auditor {
   private runOptions(crawl: boolean, maxPages: number, concurrency: number): AuditRunOptions {
     return {
       crawl,
+      crawlSitemap: this.options.crawlSitemap,
       maxPages,
       concurrency,
       measureCwv: this.options.measureCwv,

@@ -1,6 +1,6 @@
 import type { AuditContext } from '../../types.js';
 import { defineRule, pass, fail, notMeasured } from '../define-rule.js';
-import { getOwnPageInfo } from './site-page-utils.js';
+import { getOwnPageInfo, hasUnknownRobots } from './site-page-utils.js';
 
 /**
  * Rule: Disallowed URL Has Incoming Hreflang
@@ -30,7 +30,7 @@ export const hreflangDisallowedTargetRule = defineRule({
     }
 
     const own = getOwnPageInfo(context);
-    if (!own) {
+    if (!own || hasUnknownRobots(own)) {
       return notMeasured(
         'crawl-hreflang-disallowed-target',
         'This page has no crawl record, so its robots.txt state is unknown'

@@ -10,7 +10,7 @@ export const structuredDataWebsiteSearchRule = defineRule({
   category: 'schema',
   weight: 8,
   run: (context: AuditContext) => {
-    const websites = findItemsByType(context.$, 'WebSite');
+    const websites = findItemsByType(context.rendered$ ?? context.$, 'WebSite');
     let isHomepage: boolean;
     try { isHomepage = new URL(context.url).pathname === '/'; }
     catch { return notMeasured('schema-website-search', 'Page URL unavailable for WebSite scope'); }

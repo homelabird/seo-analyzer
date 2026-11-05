@@ -26,8 +26,8 @@ const run = (over: Partial<AuditRunOptions> = {}): AuditRunOptions => ({
 });
 
 describe('the scoring model is recorded on the run', () => {
-  it('is 5, the model excluding unmeasured categories', () => {
-    expect(SCORING_VERSION).toBe(5);
+  it('is 6, the model with language-aware and scoped evidence corrections', () => {
+    expect(SCORING_VERSION).toBe(6);
   });
 
   it('reports a model change as a difference', () => {
@@ -48,7 +48,7 @@ describe('the scoring model is recorded on the run', () => {
   it('renders the versions, so the report names what changed', () => {
     const [difference] = compareRunProfiles(run({ scoringVersion: 1 }), run());
     expect(difference.previous).toBe('1');
-    expect(difference.current).toBe('5');
+    expect(difference.current).toBe('6');
   });
 });
 

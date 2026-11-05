@@ -135,6 +135,9 @@ seomator audit https://example.com --format llm --no-cwv | claude "analyze and p
 # Crawl multiple pages
 seomator audit https://example.com --crawl --max-pages 20
 
+# Include sitemap-only pages and compare mobile rendering
+seomator audit https://example.com --sitemap --mobile --max-pages 20
+
 # Full options
 seomator audit https://example.com --crawl -m 50 --concurrency 5 --timeout 60000 --format json -o results.json
 ```

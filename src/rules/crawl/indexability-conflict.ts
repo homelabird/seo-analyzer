@@ -1,3 +1,4 @@
+import { readIndexingDirectives } from '../../analysis/robots.js';
 import type { AuditContext } from '../../types.js';
 import { defineRule, pass, warn, fail } from '../define-rule.js';
 import { fetchPage } from '../../crawler/fetcher.js';
@@ -29,31 +30,9 @@ function getPath(url: string): string {
 /**
  * Check if page has noindex directive
  */
-function getNoindexDirectives(
-  $: AuditContext['$'],
-  headers: Record<string, string>
-): string[] {
-  const sources: string[] = [];
-
-  // Check meta robots
-  const robotsMeta = $('meta[name="robots"]').attr('content') || '';
-  if (/noindex/i.test(robotsMeta)) {
-    sources.push('meta[name="robots"]');
-  }
-
-  // Check googlebot meta
-  const googlebotMeta = $('meta[name="googlebot"]').attr('content') || '';
-  if (/noindex/i.test(googlebotMeta)) {
-    sources.push('meta[name="googlebot"]');
-  }
-
-  // Check X-Robots-Tag header
-  const xRobotsTag = headers['x-robots-tag'] || headers['X-Robots-Tag'] || '';
-  if (/noindex/i.test(xRobotsTag)) {
-    sources.push('X-Robots-Tag header');
-  }
-
-  return sources;
+function getNoindexDirectives($: AuditContext['$'], headers: Record<string, string>, rendered$?: AuditContext['$']): string[] {
+  const reading = readIndexingDirectives({ $, headers, rendered$ });
+  return [...reading.raw.declarations, ...(reading.rendered?.declarations ?? [])].filter((item) => item.directives.some((token) => token === 'noindex' || token === 'none')).map((item) => item.source);
 }
 
 /**
@@ -72,7 +51,7 @@ export const indexabilityConflictRule = defineRule({
     const { $, url, headers } = context;
 
     // Get noindex sources
-    const noindexSources = getNoindexDirectives($, headers);
+    const noindexSources = getNoindexDirectives($, headers, context.rendered$);
     const hasNoindex = noindexSources.length > 0;
 
     // Fetch and parse robots.txt

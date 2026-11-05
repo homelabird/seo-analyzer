@@ -51,7 +51,8 @@ export const structuredDataBreadcrumbRule = defineRule({
   category: 'schema',
   weight: 8,
   run: async (context: AuditContext) => {
-    const { $, url } = context;
+    const $ = context.rendered$ ?? context.$;
+    const { url } = context;
 
     // Check if current URL is homepage
     const parsedUrl = new URL(url);

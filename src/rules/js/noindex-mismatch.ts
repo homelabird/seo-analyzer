@@ -1,16 +1,9 @@
+import { readRobotsDirectives } from '../../analysis/robots.js';
 import type { AuditContext } from '../../types.js';
 import { defineRule, pass, fail, notMeasured } from '../define-rule.js';
 
 // Reference hints: rendered/noindex-only-in-the-http-response-html,
 // rendered/nofollow-only-in-the-http-response-html
-
-/**
- * Check if a Cheerio instance carries a given robots meta directive.
- */
-function hasRobotsDirective($: any, directive: 'noindex' | 'nofollow'): boolean {
-  const robotsContent = $('meta[name="robots"]').attr('content') || '';
-  return new RegExp(directive, 'i').test(robotsContent);
-}
 
 /**
  * Rule: Noindex/Nofollow Mismatch Between Raw and Rendered DOM
@@ -28,7 +21,7 @@ export const noindexMismatchRule = defineRule({
   category: 'js',
   weight: 10,
   run: async (context: AuditContext) => {
-    const rendered$ = (context as any).rendered$;
+    const rendered$ = context.rendered$;
 
     if (!rendered$) {
       return notMeasured(
@@ -37,17 +30,19 @@ export const noindexMismatchRule = defineRule({
       );
     }
 
-    const rawHasNoindex = hasRobotsDirective(context.$, 'noindex');
-    const renderedHasNoindex = hasRobotsDirective(rendered$, 'noindex');
-    const rawHasNofollow = hasRobotsDirective(context.$, 'nofollow');
-    const renderedHasNofollow = hasRobotsDirective(rendered$, 'nofollow');
+    const raw = readRobotsDirectives(context.$);
+    const rendered = readRobotsDirectives(rendered$);
+    const rawHasNoindex = raw.noindex;
+    const renderedHasNoindex = rendered.noindex;
+    const rawHasNofollow = raw.nofollow;
+    const renderedHasNofollow = rendered.nofollow;
 
     const changes: string[] = [];
 
     if (rawHasNoindex !== renderedHasNoindex) {
       changes.push(
         rawHasNoindex
-          ? 'JavaScript removed the noindex directive (page becomes indexable after JS)'
+          ? 'JavaScript removed the noindex directive (Google may skip rendering and retain the original noindex)'
           : 'JavaScript added a noindex directive (page becomes hidden after JS)'
       );
     }

@@ -9,8 +9,8 @@ const ARTICLE_TYPES = [
   'TechArticle',
   'ScholarlyArticle',
 ];
-const REQUIRED = ['headline', 'author', 'datePublished'];
 const RECOMMENDED = [
+  'headline', 'author', 'datePublished',
   'image',
   'publisher',
   'dateModified',
@@ -22,7 +22,7 @@ const RECOMMENDED = [
  * Rule: Validate Article schema structured data
  *
  * Checks for proper implementation of Article-type schemas including:
- * - Required fields: headline, author, datePublished
+ * - Google Article properties are recommended rather than mandatory
  * - Recommended fields: image, publisher, dateModified, description, mainEntityOfPage
  * - Author format: should be Person/Organization object, not plain string
  */
@@ -30,11 +30,11 @@ export const structuredDataArticleRule = defineRule({
   id: 'schema-article',
   name: 'Article Schema',
   description:
-    'Validates Article, NewsArticle, BlogPosting, TechArticle, and ScholarlyArticle schemas for required and recommended fields',
+    'Validates Article, NewsArticle, BlogPosting, TechArticle, and ScholarlyArticle schemas for recommended properties and author format',
   category: 'schema',
   weight: 12,
   run: async (context: AuditContext) => {
-    const { $ } = context;
+    const $ = context.rendered$ ?? context.$;
 
     const articles = findItemsByType($, ARTICLE_TYPES);
 
@@ -51,13 +51,8 @@ export const structuredDataArticleRule = defineRule({
 
     for (const article of articles) {
       const articleType = article.type;
-
-      // Check required fields
-      const missingRequired = getMissingFields(article, REQUIRED);
-      if (missingRequired.length > 0) {
-        issues.push(
-          `${articleType}: missing required fields: ${missingRequired.join(', ')}`
-        );
+      for (const field of ['headline', 'datePublished', 'dateModified']) {
+        if (hasField(article, field) && typeof article.data[field] !== 'string') issues.push(`${articleType}: ${field} must be text`);
       }
 
       // Check if author is a string instead of Person/Organization object
@@ -67,6 +62,8 @@ export const structuredDataArticleRule = defineRule({
           warnings.push(
             `${articleType}: author should be a Person or Organization object, not a plain string`
           );
+        } else if (typeof author !== 'object' || author === null) {
+          issues.push(`${articleType}: author must be a Person/Organization object or array`);
         }
       }
 
@@ -104,7 +101,7 @@ export const structuredDataArticleRule = defineRule({
 
     return pass(
       'schema-article',
-      `All ${articles.length} Article schema(s) have required fields`,
+      `All ${articles.length} Article schema(s) have recommended fields`,
       {
         articlesFound: articles.length,
         articleTypes: articles.map((a) => a.type),

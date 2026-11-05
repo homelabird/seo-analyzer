@@ -67,6 +67,11 @@ export function lookupPage(site: SiteContext, url: string): SitePageInfo | undef
   return site.pages?.get(site.normalize(url));
 }
 
+/** New crawl records distinguish unknown robots evidence from legacy false flags. */
+export function hasUnknownRobots(info: SitePageInfo): boolean {
+  return info.robotsEvidence !== undefined && info.crawlAllowed === undefined;
+}
+
 /**
  * Whether two URLs are the same page under the crawl's normalisation.
  */

@@ -1,6 +1,6 @@
 import type { AuditContext } from '../../types.js';
 import { defineRule, pass, fail, notMeasured } from '../define-rule.js';
-import { lookupPage, resolveHreflangOut } from './site-page-utils.js';
+import { hasUnknownRobots, lookupPage, resolveHreflangOut } from './site-page-utils.js';
 
 /**
  * Rule: Hreflang To Disallowed URLs
@@ -40,7 +40,7 @@ export const hreflangToDisallowedRule = defineRule({
     let unknown = 0;
     for (const [code, targetUrl] of annotations) {
       const target = lookupPage(site, targetUrl);
-      if (!target) {
+      if (!target || hasUnknownRobots(target)) {
         unknown++;
         continue;
       }
@@ -64,7 +64,7 @@ export const hreflangToDisallowedRule = defineRule({
       );
     }
 
-    if (unknown === annotations.length) {
+    if (unknown > 0) {
       return notMeasured(
         'crawl-hreflang-to-disallowed',
         'None of the hreflang targets were crawled, so their robots.txt state is unknown',

@@ -1,34 +1,16 @@
+import { readIndexingDirectives } from '../../analysis/robots.js';
 import type { AuditContext } from '../../types.js';
 import { defineRule, pass, warn } from '../define-rule.js';
 
 /**
  * Check if page has a noindex directive via meta tags or headers
  */
-function hasNoindex($: AuditContext['$'], headers: Record<string, string>): {
-  isNoindexed: boolean;
-  sources: string[];
-} {
-  const sources: string[] = [];
-
-  // Check meta robots
-  const robotsMeta = $('meta[name="robots"]').attr('content') || '';
-  if (/noindex/i.test(robotsMeta)) {
-    sources.push('meta[name="robots"]');
-  }
-
-  // Check googlebot meta
-  const googlebotMeta = $('meta[name="googlebot"]').attr('content') || '';
-  if (/noindex/i.test(googlebotMeta)) {
-    sources.push('meta[name="googlebot"]');
-  }
-
-  // Check X-Robots-Tag header
-  const xRobotsTag = headers['x-robots-tag'] || headers['X-Robots-Tag'] || '';
-  if (/noindex/i.test(xRobotsTag)) {
-    sources.push('X-Robots-Tag header');
-  }
-
-  return { isNoindexed: sources.length > 0, sources };
+function hasNoindex($: AuditContext['$'], headers: Record<string, string>, rendered$?: AuditContext['$']): { isNoindexed: boolean; sources: string[] } {
+  const reading = readIndexingDirectives({ $, headers, rendered$ });
+  const sources = [...reading.raw.declarations, ...(reading.rendered?.declarations ?? [])]
+    .filter((item) => item.directives.some((token) => token === 'noindex' || token === 'none'))
+    .map((item) => item.source);
+  return { isNoindexed: reading.noindex, sources };
 }
 
 /**
@@ -61,7 +43,7 @@ export const paginationNoindexRule = defineRule({
       );
     }
 
-    const { isNoindexed, sources } = hasNoindex($, headers);
+    const { isNoindexed, sources } = hasNoindex($, headers, context.rendered$);
 
     const details = {
       isPaginated: true,

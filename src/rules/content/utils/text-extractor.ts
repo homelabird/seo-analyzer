@@ -43,15 +43,27 @@ export function stripUrls(text: string): string {
 }
 
 /**
- * Tokenize text into words
- * Removes punctuation and splits on whitespace
+ * Tokenize Unicode text. Segment unspaced CJK copy without discarding letters.
  */
 export function tokenize(text: string): string[] {
-  return text
+  const cleaned = text.normalize('NFC')
     .toLowerCase()
-    .replace(/[^\w\s]/g, ' ')
-    .split(/\s+/)
-    .filter((word) => word.length > 0);
+    .replace(/[^\p{L}\p{M}\p{N}_\s]/gu, ' ');
+  if (/[\p{Script=Han}\p{Script=Hiragana}\p{Script=Katakana}]/u.test(cleaned)) {
+    const segmenter = new Intl.Segmenter(undefined, { granularity: 'word' });
+    return [...segmenter.segment(cleaned)].filter((part) => part.isWordLike).map((part) => part.segment);
+  }
+  return cleaned.split(/\s+/).filter(Boolean);
+}
+
+/** Whether English-calibrated readability/word thresholds apply to this copy. */
+export function supportsEnglishAnalysis($: CheerioAPI, text: string): boolean {
+  const language = $('html').attr('lang')?.trim().toLowerCase();
+  if (language && !/^en(?:-|$)/.test(language)) return false;
+  const letters = text.match(/\p{L}/gu) ?? [];
+  if (!letters.length) return false;
+  const latin = letters.filter((letter) => /\p{Script=Latin}/u.test(letter)).length;
+  return latin / letters.length >= 0.9;
 }
 
 /**

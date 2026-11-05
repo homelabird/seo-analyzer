@@ -1,7 +1,7 @@
 import type { AuditContext } from '../../types.js';
-import { defineRule, pass, fail } from '../define-rule.js';
+import { defineRule, pass, fail, warn } from '../define-rule.js';
 import { DOCUMENT_TITLE } from '../document-title.js';
-import { bodyText as visibleBodyText } from '../content/utils/visible-text.js';
+import { extractMainContent, countWords } from '../content/utils/text-extractor.js';
 
 /**
  * Patterns in the page title that indicate a soft 404
@@ -10,13 +10,17 @@ const TITLE_SOFT_404_PATTERNS = [
   '404',
   'not found',
   'page not found',
-  'error',
+  '페이지를 찾을 수 없습니다',
+  '존재하지 않는 페이지',
+  '삭제된 페이지',
 ];
 
 /**
  * Patterns in the H1 that indicate a soft 404
  */
 const H1_SOFT_404_PATTERNS = [
+  '페이지를 찾을 수 없습니다',
+  '존재하지 않는 페이지',
   '404',
   'not found',
   'page not found',
@@ -26,6 +30,9 @@ const H1_SOFT_404_PATTERNS = [
  * Body text patterns that, combined with thin content, indicate a soft 404
  */
 const BODY_SOFT_404_PATTERNS = [
+  '존재하지 않는 페이지',
+  '페이지를 찾을 수 없습니다',
+  '삭제되었거나',
   'not found',
   "doesn't exist",
   'does not exist',
@@ -42,15 +49,6 @@ const BODY_SOFT_404_PATTERNS = [
  * body text are flagged as soft 404s.
  */
 const MIN_WORD_COUNT = 100;
-
-/**
- * Counts the number of words in a text string
- */
-function countWords(text: string): number {
-  const trimmed = text.trim();
-  if (trimmed.length === 0) return 0;
-  return trimmed.split(/\s+/).length;
-}
 
 /**
  * Checks whether any pattern from the list appears in the text
@@ -79,7 +77,8 @@ export const soft404Rule = defineRule({
   category: 'technical',
   weight: 10,
   run: async (context: AuditContext) => {
-    const { statusCode, $ } = context;
+    const statusCode = context.statusCode;
+    const $ = context.rendered$ ?? context.$;
 
     // If the server correctly returns 404, this rule passes
     if (statusCode === 404) {
@@ -100,24 +99,25 @@ export const soft404Rule = defineRule({
     }
 
     const indicators: string[] = [];
+    const bodyText = extractMainContent($);
+    const wordCount = countWords(bodyText);
+    const thin = wordCount < MIN_WORD_COUNT;
 
     // Check title for soft 404 patterns
     const title = $(DOCUMENT_TITLE).first().text().toLowerCase();
     const titleMatch = matchesAny(title, TITLE_SOFT_404_PATTERNS);
-    if (titleMatch) {
+    if (titleMatch && thin) {
       indicators.push(`Title contains "${titleMatch}"`);
     }
 
     // Check H1 for soft 404 patterns
     const h1 = $('h1').text().toLowerCase();
     const h1Match = matchesAny(h1, H1_SOFT_404_PATTERNS);
-    if (h1Match) {
+    if (h1Match && thin) {
       indicators.push(`H1 contains "${h1Match}"`);
     }
 
     // Check body text for soft 404 patterns combined with thin content
-    const bodyText = visibleBodyText($);
-    const wordCount = countWords(bodyText);
 
     if (wordCount < MIN_WORD_COUNT) {
       const bodyLower = bodyText.toLowerCase();
@@ -130,7 +130,8 @@ export const soft404Rule = defineRule({
     }
 
     if (indicators.length > 0) {
-      return fail(
+      const verdict = indicators.length >= 2 ? fail : warn;
+      return verdict(
         'technical-soft-404',
         `Page returns 200 but appears to be a soft 404: ${indicators.join('; ')}`,
         {

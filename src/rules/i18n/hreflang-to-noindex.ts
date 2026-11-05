@@ -1,3 +1,4 @@
+import { readIndexingDirectives } from '../../analysis/robots.js';
 import type { AuditContext } from '../../types.js';
 import { defineRule, pass, fail } from '../define-rule.js';
 
@@ -35,25 +36,11 @@ export const hreflangToNoindexRule = defineRule({
       });
     }
 
-    // Check meta robots for noindex
-    let hasNoindex = false;
-    let noindexSource = '';
-
-    $('meta[name="robots"], meta[name="googlebot"]').each((_, el) => {
-      const content = ($(el).attr('content') || '').toLowerCase();
-      if (content.includes('noindex')) {
-        hasNoindex = true;
-        const name = $(el).attr('name') || 'robots';
-        noindexSource = `<meta name="${name}" content="${content}">`;
-      }
-    });
-
-    // Check X-Robots-Tag HTTP header
-    const xRobotsTag = headers['x-robots-tag'] || '';
-    if (xRobotsTag.toLowerCase().includes('noindex')) {
-      hasNoindex = true;
-      noindexSource = noindexSource || `X-Robots-Tag: ${xRobotsTag}`;
-    }
+    const reading = readIndexingDirectives(context);
+    const hasNoindex = reading.noindex;
+    const noindexSource = [...reading.raw.declarations, ...(reading.rendered?.declarations ?? [])]
+      .filter((item) => item.directives.some((token) => token === 'noindex' || token === 'none'))
+      .map((item) => item.source).join(', ');
 
     if (!hasNoindex) {
       return pass('i18n-hreflang-to-noindex', 'No conflict between hreflang and indexing directives', {

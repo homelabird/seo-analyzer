@@ -592,7 +592,7 @@ Validates robots.txt, sitemap, status codes, URL structure, and analytics tag se
 | `technical-trailing-slash` | Trailing Slash Consistency | 1 | warn | Warns when one internal path is linked both with and without a trailing slash |
 | `technical-www-redirect` | WWW Redirect | 1 | warn/fail | Validates www/non-www consistency |
 | `technical-404-page` | Custom 404 Page | 1 | warn/fail | Checks for custom 404 page |
-| `technical-soft-404` | Soft 404 Detection | 10 | fail | Detects pages returning 200 but showing error content |
+| `technical-soft-404` | Soft 404 Detection | 10 | fail | Combines short error-page indicators in source or rendered content, including Korean; a normal title containing error is not sufficient |
 | `technical-server-error` | Server Error Detection | 10 | fail | Detects 5xx server errors |
 | `technical-4xx-non-404` | 4xx Client Error Detection | 8 | warn/fail | Detects 4xx errors other than 404 (403, 410, etc.) |
 | `technical-timeout` | Response Timeout Check | 8 | warn/fail | Grades the page's response time: 3 seconds or more warns, over 10 seconds fails |
@@ -839,7 +839,7 @@ Checks for valid JSON-LD, Schema.org markup, and rich snippet eligibility.
 - **Fix:** Include `@type` and all required properties for the chosen schema type.
 
 #### schema-article
-- **Required (missing fails):** headline, author, datePublished. **Recommended (missing warns):** image, publisher, dateModified, description, mainEntityOfPage. An `author` given as a plain string instead of a Person or Organization warns.
+- **Recommended (missing warns):** headline, author, datePublished, image, publisher, dateModified, description, mainEntityOfPage. Google Article markup has no required properties. An `author` given as a plain string instead of a Person or Organization warns.
 
 #### schema-breadcrumb
 - **Fix:** Add BreadcrumbList with at least 2 itemListElement items on non-homepage pages.
@@ -854,7 +854,7 @@ Checks for valid JSON-LD, Schema.org markup, and rich snippet eligibility.
 - **Fix:** Include name, logo URL, sameAs array with social media profile URLs.
 
 #### schema-product
-- **Fix:** Include offers with price, priceCurrency, and availability.
+- **Profile:** Product snippets require name and one of review, aggregateRating, or offers. Offer price may be zero or use priceSpecification; AggregateOffer uses lowPrice and priceCurrency. Image, regular Offer currency, and availability are recommendations for this profile. Merchant listing requirements are separate.
 
 #### schema-review
 - **Fix:** Include itemReviewed, author, and reviewRating with ratingValue.
@@ -907,14 +907,15 @@ Analyzes text quality, readability, headings, and duplicate content.
 | `content-title-pattern` | Title Template | 3 | warn | The title keeps the suffix most of the site uses (requires --crawl) |
 
 #### content-word-count
-- **Pass:** >= 300 words. **Warn:** 100-299 (thin). **Fail:** < 100 (extremely thin).
+- **English heuristic:** Pass >= 300 words, warn at 100–299, fail below 100. Nonempty unsupported-language copy reports its Unicode word count without applying English thresholds. Empty content still fails. Word count alone does not establish content quality.
 - **Fix:** Expand content to 300+ words; 500+ for standard pages, 1000+ for articles.
 
 #### content-reading-level
-- **Optimal:** 60-70 Flesch-Kincaid (8th grade level, accessible to general audience).
+- **English only:** 60–70 Flesch-Kincaid is the target. Unsupported languages and samples under 50 words are not measured.
 - **Fix:** Use shorter sentences, simpler vocabulary, bullet points.
 
 #### content-keyword-stuffing
+- **Scope:** English thresholds and stopwords only. Unsupported languages expose repetition observations without scoring; insufficient English samples are not measured.
 - **Fix:** Write naturally for users. Use synonyms and related terms instead of repeating keywords.
 
 #### content-heading-hierarchy
@@ -937,6 +938,7 @@ Analyzes text quality, readability, headings, and duplicate content.
 - **Fix:** Keep title under ~580px and description under ~920px to avoid SERP truncation.
 
 #### content-duplicate-exact / content-duplicate-near
+- **Near duplicates:** Unicode word trigrams (up to 500 tokens), including Korean and segmented Chinese/Japanese text. Insufficient content or trigrams is not measured.
 - **Fix:** Consolidate duplicate pages with canonical tags or 301 redirects. Rewrite near-duplicate content.
 
 #### content-broken-html
@@ -1002,7 +1004,7 @@ Compares the served HTML with the DOM after JavaScript runs, and checks the rend
 | `js-rendered-h1` | Rendered H1 Present | 8 | fail | A non-empty H1 exists in the rendered DOM after JavaScript runs (requires render; not measured with --no-cwv) |
 | `js-rendered-canonical` | Rendered Canonical Present | 8 | fail | A canonical link exists in the rendered DOM after JavaScript runs (requires render; not measured with --no-cwv) |
 | `js-canonical-mismatch` | Canonical Mismatch (Raw vs Rendered) | 10 | fail | Canonical differs between HTML source and rendered DOM (requires render; not measured with --no-cwv) |
-| `js-noindex-mismatch` | Noindex/Nofollow Mismatch (Raw vs Rendered) | 10 | fail | Noindex or nofollow in `<meta name="robots">` differs between source and rendered DOM (requires render; not measured with --no-cwv) |
+| `js-noindex-mismatch` | Noindex/Nofollow Mismatch (Raw vs Rendered) | 10 | fail | Googlebot noindex/nofollow in common or bot-specific meta tags differs between source and rendered DOM (requires render; not measured with --no-cwv) |
 | `js-title-modified` | Title Modified by JavaScript | 8 | warn | JavaScript modifies title after initial load (requires render; not measured with --no-cwv) |
 | `js-description-modified` | Meta Description Modified by JavaScript | 7 | warn | JavaScript modifies description after initial load (requires render; not measured with --no-cwv) |
 | `js-h1-modified` | H1 Modified by JavaScript | 7 | warn | JavaScript modifies H1 after initial load (requires render; not measured with --no-cwv) |

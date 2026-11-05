@@ -1,3 +1,4 @@
+import { readRobotsDirectives } from '../../analysis/robots.js';
 import type { AuditContext } from '../../types.js';
 import { defineRule, pass, warn, fail } from '../define-rule.js';
 import { parseRobotsDirectives } from './robots-meta.js';
@@ -40,11 +41,7 @@ function summarizeDirectives(tokens: string[]): DirectiveFlags {
  * comparing against the HTML meta robots tag.
  */
 function parseHeaderDirectives(headerValue: string): string[] {
-  const segments = headerValue
-    .split(',')
-    .map((s) => s.trim())
-    .filter((s) => s.length > 0 && !/^[a-z0-9_*-]+:/i.test(s));
-  return parseRobotsDirectives(segments.join(','));
+  return readRobotsDirectives(undefined, { 'x-robots-tag': headerValue }, '').directives;
 }
 
 /**

@@ -7,7 +7,32 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- `audit --sitemap` seeds the crawl with sitemap URLs, retaining discovery
+  provenance and unknown click depth for URLs not reachable through anchors.
+- Mobile parity now runs in crawl mode. Completed browser requests provide
+  encoded response sizes even when Content-Length is absent.
+
 ### Fixed
+
+- Preserve Unicode text in counts and near-duplicate comparisons. English-only
+  readability, keyword and absolute word-count thresholds are not graded on
+  unsupported languages; insufficient samples are unmeasured.
+- Share Googlebot directive parsing across scoring, crawl records and rules.
+  Respect bot-prefixed header scope, multiple/case-insensitive meta tags, none,
+  and original noindex retained across rendering. Unknown robots evidence is
+  recorded separately from allowed crawling.
+- Discover JavaScript-generated links and include them in the internal graph
+  with source metadata while preserving the original HTML and link inventory.
+- Avoid Soft 404 failures from the word "error" in normal tutorial titles;
+  combine error indicators and include Korean/rendered error pages.
+- Treat Article properties as recommendations. Validate Product snippets using
+  review/aggregateRating/offers alternatives; accept zero prices and
+  AggregateOffer, and share recursive/array JSON-LD parsing.
+- **Scoring model 6 / result schema 3:** the evidence corrections and newly
+  unmeasured inputs can change category averages and overall scores. Category
+  weights and the 373 rule IDs stay unchanged; historical scores are preserved.
 
 - Redact URL credentials, sensitive query values, authentication headers and
   nested diagnostic strings before saving or exporting audits. Existing history

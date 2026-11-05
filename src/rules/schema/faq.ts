@@ -22,7 +22,7 @@ export const structuredDataFaqRule = defineRule({
   category: 'schema',
   weight: 8,
   run: async (context: AuditContext) => {
-    const { $ } = context;
+    const $ = context.rendered$ ?? context.$;
 
     const faqPages = findItemsByType($, 'FAQPage');
 

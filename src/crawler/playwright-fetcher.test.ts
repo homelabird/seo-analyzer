@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import type { Page, Request, Response } from 'playwright';
-import { collectAssets } from './playwright-fetcher.js';
+import { collectAssets, settleAssetSizes } from './playwright-fetcher.js';
 
 /**
  * Minimal Playwright mocks: collectAssets only uses `page.on('response')` and,
@@ -46,6 +46,29 @@ function mockPage(): { page: Page; emitResponse: (response: Response) => void } 
 }
 
 describe('collectAssets', () => {
+  it('reads completed encoded response sizes without a Content-Length or another request', async () => {
+    const handlers = new Map<string, (value: any) => void>();
+    const page = { on: (event: string, callback: (value: any) => void) => handlers.set(event, callback) } as unknown as Page;
+    const assets = collectAssets(page);
+    const request = mockRequest({ url: 'https://example.com/chunked.js' });
+    request.sizes = async () => ({ responseBodySize: 4200, responseHeadersSize: 100, requestBodySize: 0, requestHeadersSize: 100 });
+    handlers.get('response')!(mockResponse(request, 200, {}));
+    handlers.get('requestfinished')!(request);
+    await settleAssetSizes(assets);
+    expect(assets[0].transferBytes).toBe(4200);
+  });
+
+  it('keeps a failed size reading unknown', async () => {
+    const handlers = new Map<string, (value: any) => void>();
+    const page = { on: (event: string, callback: (value: any) => void) => handlers.set(event, callback) } as unknown as Page;
+    const assets = collectAssets(page);
+    const request = mockRequest({ url: 'https://example.com/failed.js' });
+    request.sizes = async () => { throw new Error('Unavailable'); };
+    handlers.get('response')!(mockResponse(request, 200, {}));
+    handlers.get('requestfinished')!(request);
+    await settleAssetSizes(assets);
+    expect(assets[0].transferBytes).toBeUndefined();
+  });
   it('records a normal asset with only the cache-relevant headers kept', () => {
     const { page, emitResponse } = mockPage();
     const assets = collectAssets(page);

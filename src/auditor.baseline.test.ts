@@ -101,7 +101,7 @@ const EXPECTED_CATEGORIES: Record<string, [number, number, number, number, numbe
   crawl: [99, 20, 1, 0, 17],
   schema: [92, 13, 2, 0, 4],
   a11y: [98, 34, 1, 0, 1],
-  content: [96, 20, 0, 1, 6],
+  content: [96, 19, 0, 1, 7],
   social: [61, 4, 3, 2, 0],
   eeat: [90, 12, 2, 0, 2],
   url: [100, 14, 0, 0, 0],

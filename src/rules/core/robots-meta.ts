@@ -1,17 +1,8 @@
 import type { AuditContext } from '../../types.js';
 import { defineRule, pass, warn } from '../define-rule.js';
 
-/**
- * Split a robots directive string (meta content or X-Robots-Tag value) into
- * lowercase tokens.
- */
-export function parseRobotsDirectives(content: string): string[] {
-  return content
-    .toLowerCase()
-    .split(/[,\s]+/)
-    .map((d) => d.trim())
-    .filter((d) => d.length > 0);
-}
+export { parseRobotsDirectives } from '../../analysis/robots.js';
+import { readRobotsDirectives } from '../../analysis/robots.js';
 
 /**
  * Rule: Check robots meta tag for indexing directives
@@ -41,60 +32,16 @@ export const robotsMetaRule = defineRule({
       'none', // Equivalent to noindex, nofollow
     ];
 
-    // Parse directive content
-    const parseDirectives = parseRobotsDirectives;
-
-    // Check meta robots tag
-    const robotsMeta = $('meta[name="robots"]');
-    robotsMeta.each((_, el) => {
-      const content = $(el).attr('content') || '';
-      const directives = parseDirectives(content);
-      allDirectives.push({ source: 'meta[name="robots"]', directives });
-
-      for (const directive of directives) {
-        if (restrictiveDirectives.includes(directive)) {
-          issues.push(`robots: "${directive}"`);
-        }
-      }
-    });
-
-    // Check googlebot meta tag
-    const googlebotMeta = $('meta[name="googlebot"]');
-    googlebotMeta.each((_, el) => {
-      const content = $(el).attr('content') || '';
-      const directives = parseDirectives(content);
-      allDirectives.push({ source: 'meta[name="googlebot"]', directives });
-
-      for (const directive of directives) {
-        if (restrictiveDirectives.includes(directive)) {
-          issues.push(`googlebot: "${directive}"`);
-        }
-      }
-    });
-
-    // Check bingbot meta tag
-    const bingbotMeta = $('meta[name="bingbot"]');
-    bingbotMeta.each((_, el) => {
-      const content = $(el).attr('content') || '';
-      const directives = parseDirectives(content);
-      allDirectives.push({ source: 'meta[name="bingbot"]', directives });
-
-      for (const directive of directives) {
-        if (restrictiveDirectives.includes(directive)) {
-          issues.push(`bingbot: "${directive}"`);
-        }
-      }
-    });
-
-    // Check X-Robots-Tag header
-    const xRobotsTag = headers['x-robots-tag'] || headers['X-Robots-Tag'] || '';
-    if (xRobotsTag) {
-      const directives = parseDirectives(xRobotsTag);
-      allDirectives.push({ source: 'X-Robots-Tag header', directives });
-
-      for (const directive of directives) {
-        if (restrictiveDirectives.includes(directive)) {
-          issues.push(`X-Robots-Tag: "${directive}"`);
+    for (const crawler of ['googlebot', 'bingbot']) {
+      const reading = readRobotsDirectives($, headers, crawler);
+      for (const declaration of reading.declarations) {
+        if (!allDirectives.some((item) => item.source === declaration.source && item.directives.join() === declaration.directives.join())) allDirectives.push(declaration);
+        for (const directive of declaration.directives) {
+          if (restrictiveDirectives.includes(directive)) {
+            const source = declaration.source === 'X-Robots-Tag header' ? 'X-Robots-Tag' : /name="([^"]+)"/.exec(declaration.source)?.[1] ?? crawler;
+            const issue = `${source}: "${directive}"`;
+            if (!issues.includes(issue)) issues.push(issue);
+          }
         }
       }
     }

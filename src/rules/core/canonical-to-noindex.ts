@@ -1,29 +1,12 @@
+import { readIndexingDirectives } from '../../analysis/robots.js';
 import type { AuditContext } from '../../types.js';
 import { defineRule, pass, warn } from '../define-rule.js';
 
 /**
  * Check if the page has a noindex directive from meta tags or X-Robots-Tag header.
  */
-function hasNoindexDirective($: AuditContext['$'], headers: Record<string, string>): boolean {
-  // Check meta robots
-  const robotsContent = $('meta[name="robots"]').attr('content') || '';
-  if (/noindex/i.test(robotsContent)) {
-    return true;
-  }
-
-  // Check meta googlebot
-  const googlebotContent = $('meta[name="googlebot"]').attr('content') || '';
-  if (/noindex/i.test(googlebotContent)) {
-    return true;
-  }
-
-  // Check X-Robots-Tag header
-  const xRobotsTag = headers['x-robots-tag'] || headers['X-Robots-Tag'] || '';
-  if (/noindex/i.test(xRobotsTag)) {
-    return true;
-  }
-
-  return false;
+function hasNoindexDirective($: AuditContext['$'], headers: Record<string, string>, rendered$?: AuditContext['$']): boolean {
+  return readIndexingDirectives({ $, headers, rendered$ }).noindex;
 }
 
 /**
@@ -87,7 +70,7 @@ export const canonicalToNoindexRule = defineRule({
     const isSelfReferencing = normalizedPage === normalizedCanonical;
 
     // Check for noindex directive
-    const pageHasNoindex = hasNoindexDirective($, headers);
+    const pageHasNoindex = hasNoindexDirective($, headers, context.rendered$);
 
     if (!pageHasNoindex) {
       return pass(

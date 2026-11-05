@@ -70,7 +70,7 @@ export const structuredDataTypeRule = defineRule({
   category: 'schema',
   weight: 25,
   run: async (context: AuditContext) => {
-    const { $ } = context;
+    const $ = context.rendered$ ?? context.$;
 
     const jsonLdScripts = $('script[type="application/ld+json"]');
 

@@ -1,3 +1,4 @@
+import { readIndexingDirectives } from '../../analysis/robots.js';
 import type { AuditContext } from '../../types.js';
 import { defineRule, pass, fail, warn } from '../define-rule.js';
 
@@ -30,26 +31,8 @@ const RICH_RESULT_TYPES = [
 /**
  * Check if page has noindex directive
  */
-function hasNoindex($: AuditContext['$'], headers: Record<string, string>): boolean {
-  // Check meta robots
-  const robotsMeta = $('meta[name="robots"]').attr('content') || '';
-  if (/noindex/i.test(robotsMeta)) {
-    return true;
-  }
-
-  // Check googlebot meta
-  const googlebotMeta = $('meta[name="googlebot"]').attr('content') || '';
-  if (/noindex/i.test(googlebotMeta)) {
-    return true;
-  }
-
-  // Check X-Robots-Tag header
-  const xRobotsTag = headers['x-robots-tag'] || headers['X-Robots-Tag'] || '';
-  if (/noindex/i.test(xRobotsTag)) {
-    return true;
-  }
-
-  return false;
+function hasNoindex($: AuditContext['$'], headers: Record<string, string>, rendered$?: AuditContext['$']): boolean {
+  return readIndexingDirectives({ $, headers, rendered$ }).noindex;
 }
 
 /**
@@ -104,7 +87,7 @@ export const schemaNoindexConflictRule = defineRule({
   run: async (context: AuditContext) => {
     const { $, headers } = context;
 
-    const isNoindexed = hasNoindex($, headers);
+    const isNoindexed = hasNoindex($, headers, context.rendered$);
     const schemaTypes = extractSchemaTypes($);
 
     // Filter to only rich result types

@@ -143,7 +143,7 @@ describe('Content Rules', () => {
       const html = '<html><body><article>Short text.</article></body></html>';
       const context = createContext(html);
       const result = await readingLevelRule.run(context);
-      expect(result.status).toBe('pass');
+      expect(result.status).toBe('not-measured');
       expect(result.details?.skipped).toBe(true);
     });
 
@@ -157,7 +157,7 @@ describe('Content Rules', () => {
 
   describe('keywordStuffingRule', () => {
     it('should pass when no word exceeds 2% density', async () => {
-      const html = `<html><body><article>${generateText(200)}</article></body></html>`;
+      const html = `<html><body><article>${generateText(400)}</article></body></html>`;
       const context = createContext(html);
       const result = await keywordStuffingRule.run(context);
       expect(result.status).toBe('pass');
@@ -176,7 +176,7 @@ describe('Content Rules', () => {
       const html = '<html><body><article>Short text here.</article></body></html>';
       const context = createContext(html);
       const result = await keywordStuffingRule.run(context);
-      expect(result.status).toBe('pass');
+      expect(result.status).toBe('not-measured');
       expect(result.details?.skipped).toBe(true);
     });
 
@@ -238,7 +238,7 @@ describe('Content Rules', () => {
           want to help shape what comes next. ${generateText(60)}`;
         const html = `<html><body><article>${content}</article></body></html>`;
         const result = await keywordStuffingRule.run(createContext(html));
-        expect(result.status).toBe('pass');
+        expect(result.status).toBe('not-measured');
         expect(result.details?.skipped).toBe(true);
       });
 

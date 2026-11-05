@@ -19,7 +19,7 @@ export const structuredDataOrganizationRule = defineRule({
   category: 'schema',
   weight: 8,
   run: (context: AuditContext) => {
-    const { $ } = context;
+    const $ = context.rendered$ ?? context.$;
     const orgs = findItemsByType($, ORG_TYPES);
 
     if (orgs.length === 0) {

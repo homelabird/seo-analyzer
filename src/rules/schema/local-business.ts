@@ -41,7 +41,7 @@ export const structuredDataLocalBusinessRule = defineRule({
   category: 'schema',
   weight: 10,
   run: async (context: AuditContext) => {
-    const { $ } = context;
+    const $ = context.rendered$ ?? context.$;
 
     const businesses = findItemsByType($, LOCAL_TYPES);
 

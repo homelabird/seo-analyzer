@@ -64,7 +64,7 @@ export const imageEncodingRule = defineRule({
     );
 
     const legacy = images.filter(isLegacyFormat);
-    // Only images carrying a content-length can be judged on transfer size.
+    // Only images with observed bytes or a content-length can be sized.
     const { sized: sizedImages, unsized: unsizedImages } = partitionBySizeKnown(images);
     const oversized = sizedImages
       .filter((a) => (assetContentLength(a) ?? 0) > THRESHOLDS.oversizedBytes)

@@ -42,7 +42,7 @@ export const entityIdRule = defineRule({
     const relative: string[] = [];
     const seen = new Set<string>();
 
-    for (const script of extractJsonLdScripts(context.$)) {
+    for (const script of extractJsonLdScripts(context.rendered$ ?? context.$)) {
       for (const item of extractTypedItems(script)) {
         const id = idValue(item.data);
         if (id !== null) {

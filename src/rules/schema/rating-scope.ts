@@ -20,7 +20,7 @@ export const ratingScopeRule = defineRule({
   category: 'schema',
   weight: 8,
   run: (context: AuditContext) => {
-    const ratings = findItemsByType(context.$, 'AggregateRating');
+    const ratings = findItemsByType(context.rendered$ ?? context.$, 'AggregateRating');
     if (ratings.length === 0) {
       return pass('schema-rating-scope', 'No AggregateRating schema', { ratings: 0 });
     }
@@ -37,7 +37,7 @@ export const ratingScopeRule = defineRule({
       issues.push(`AggregateRating on ${path}`);
     }
 
-    const body = context.$('body').clone();
+    const body = (context.rendered$ ?? context.$)('body').clone();
     body.find('script, style, noscript').remove();
     const pageText = body.text();
     const invisible = ratings

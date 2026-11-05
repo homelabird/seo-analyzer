@@ -1,6 +1,7 @@
+import { readIndexingDirectives } from '../analysis/robots.js';
 import { safeFetch, readResponseBytes, currentNetworkSession, withNetworkSession, validateNetworkUrl } from './network.js';
 import * as cheerio from 'cheerio';
-import { fetchPage as defaultFetchPage, createAuditContext, type FetchPageOptions, type FetchResult } from './fetcher.js';
+import { fetchPage as defaultFetchPage, createAuditContext, extractLinks, type FetchPageOptions, type FetchResult } from './fetcher.js';
 import { rethrowIfAborted, throwIfAborted } from '../errors.js';
 import type { AssetInfo, AuditContext, CoreWebVitals, DiscoverySource, InboundEdge, RenderDiagnostics, SiteContext, SitePageInfo } from '../types.js';
 import { summarizeSchemaNodes } from '../rules/schema/utils.js';
@@ -41,6 +42,8 @@ export interface CrawlProgress {
  * What a browser render contributes beyond the HTTP response.
  */
 export interface PageRenderResult {
+  mobileHtml?: string;
+  mobileUnavailableReason?: string;
   unavailableReason?: string;
   httpProtocol?: string;
   /** Core Web Vitals measured during the render */
@@ -63,6 +66,10 @@ export interface PageRenderResult {
  * Options for the Crawler
  */
 export interface CrawlerOptions {
+  /** Additional same-host URL inventory; these URLs have no inferred click depth. */
+  seedUrls?: string[];
+  /** Shared robots response, including an empty but successfully fetched file. */
+  robotsTxtContent?: string;
   allowPrivate?: boolean;
   perHostConcurrency?: number;
   /** Maximum pages to crawl */
@@ -121,21 +128,6 @@ export interface CrawledPage {
 }
 
 /**
- * Split a robots directive string (meta content or X-Robots-Tag value) into
- * lowercase tokens.
- *
- * A copy of the parser in `src/rules/core/robots-meta.ts`, kept local because
- * the layering runs rules → crawler, never the reverse.
- */
-function parseRobotsDirectiveTokens(content: string): string[] {
-  return content
-    .toLowerCase()
-    .split(/[,\s]+/)
-    .map((d) => d.trim())
-    .filter((d) => d.length > 0);
-}
-
-/**
  * Queue-based crawler with concurrency control
  */
 export class Crawler {
@@ -160,6 +152,7 @@ export class Crawler {
   private urlFilter: UrlFilter;
   /** Built once per crawl from the site's robots.txt; null when not applied. */
   private robots: RobotsMatcher | null = null;
+  private robotsTxtContent: string | undefined;
 
   constructor(options: Partial<CrawlerOptions> = {}) {
     this.options = {
@@ -173,6 +166,8 @@ export class Crawler {
       signal: options.signal,
       fetchPage: options.fetchPage ?? defaultFetchPage,
       renderPage: options.renderPage,
+      seedUrls: options.seedUrls,
+      robotsTxtContent: options.robotsTxtContent,
       urlFilter: options.urlFilter,
       respectRobots: options.respectRobots ?? true,
       // 0, not the config's 100/200: only the CLI passes the configured value,
@@ -193,7 +188,12 @@ export class Crawler {
    */
   private async loadRobots(startUrl: string): Promise<void> {
     this.robots = null;
+    this.robotsTxtContent = this.options.robotsTxtContent;
     if (!this.options.respectRobots) return;
+    if (this.robotsTxtContent !== undefined) {
+      this.robots = new RobotsMatcher(this.robotsTxtContent, getUserAgent());
+      return;
+    }
 
     const signal = this.options.signal;
     try {
@@ -204,7 +204,8 @@ export class Crawler {
         signal: signal ? AbortSignal.any([signal, timeout]) : timeout,
       });
       if (!response.ok) return;
-      this.robots = new RobotsMatcher(new TextDecoder().decode(await readResponseBytes(response, 1024 * 1024)), getUserAgent());
+      this.robotsTxtContent = new TextDecoder().decode(await readResponseBytes(response, 1024 * 1024));
+      this.robots = new RobotsMatcher(this.robotsTxtContent, getUserAgent());
     } catch (error) {
       // Unreachable robots.txt is not a reason to refuse to crawl — but a
       // cancelled one is a cancelled crawl.
@@ -263,8 +264,39 @@ export class Crawler {
     this.queue.push(normalizedStart);
     this.recordDiscoverySource(normalizedStart, 'entry');
 
+    for (const seed of this.options.seedUrls ?? []) {
+      if (!this.isHttpSameDomain(seed) || this.isNonHtmlResource(seed)) continue;
+      const normalized = this.normalizeUrl(seed);
+      this.recordDiscoverySource(normalized, 'sitemap');
+      if (this.visited.has(normalized)) continue;
+      if (!this.urlFilter.shouldCrawl(normalized) || (this.robots && !this.robots.isAllowed(normalized))) {
+        this.excludedUrls.add(normalized);
+        continue;
+      }
+      this.visited.add(normalized);
+      this.queue.push(normalized);
+    }
+
     // Process queue with concurrency control
     await this.processQueue();
+
+    if (this.options.seedUrls?.length) {
+      // Seeds can be fetched before a linking ancestor. Compute final anchor
+      // distances after discovery so queue order never fabricates a distance.
+      const graph = this.buildSiteContext();
+      this.depthByUrl.clear();
+      this.depthByUrl.set(graph.entryUrl, 0);
+      const frontier = [graph.entryUrl];
+      for (let i = 0; i < frontier.length; i++) {
+        const from = frontier[i];
+        for (const to of graph.outboundLinksByUrl.get(from) ?? []) {
+          if (this.depthByUrl.has(to)) continue;
+          if (!graph.inboundEdgesByUrl?.get(to)?.some((edge) => edge.from === from && !edge.nofollow)) continue;
+          this.depthByUrl.set(to, this.depthByUrl.get(from)! + 1);
+          frontier.push(to);
+        }
+      }
+    }
 
     this.reportProgress('', true);
     return this.results;
@@ -366,6 +398,8 @@ export class Crawler {
 
       // Render in a browser if a renderer was provided
       let unavailableReason: string | undefined;
+      let mobileHtml: string | undefined;
+      let mobileUnavailableReason: string | undefined;
       let httpProtocol: string | undefined;
       let cwv: CoreWebVitals = {};
       let renderedHtml: string | undefined;
@@ -375,19 +409,25 @@ export class Crawler {
         try {
           const rendered = await this.options.renderPage(url);
           cwv = rendered.cwv;
+          mobileHtml = rendered.mobileHtml;
+          mobileUnavailableReason = rendered.mobileUnavailableReason;
           httpProtocol = rendered.httpProtocol;
           unavailableReason = rendered.unavailableReason;
           renderedHtml = rendered.html;
+          if (!renderedHtml) unavailableReason ??= 'Renderer returned no HTML';
           diagnostics = rendered.diagnostics;
           assets = rendered.assets;
         } catch (error) {
           rethrowIfAborted(error, this.options.signal);
+          unavailableReason = error instanceof Error ? error.message : 'Browser rendering failed';
           // Rendering failed, continue with the HTTP response alone
         }
       }
 
       // Create audit context
       const context = createAuditContext(url, fetchResult, cwv);
+      if (mobileHtml) { context.mobileHtml = mobileHtml; context.mobile$ = cheerio.load(mobileHtml); }
+      context.mobileRenderUnavailableReason = mobileUnavailableReason;
       context.httpProtocol = httpProtocol;
       context.renderUnavailableReason = unavailableReason;
       const identity = this.normalizeUrl(context.url);
@@ -404,6 +444,9 @@ export class Crawler {
       if (renderedHtml) {
         context.renderedHtml = renderedHtml;
         context.rendered$ = cheerio.load(renderedHtml);
+        let base = context.url;
+        try { base = new URL(context.rendered$('base[href]').first().attr('href') ?? '', context.url).href; } catch { /* Use the document URL. */ }
+        context.renderedLinks = extractLinks(context.rendered$, base, context.url).links;
       }
       if (diagnostics) {
         context.renderDiagnostics = diagnostics;
@@ -455,7 +498,7 @@ export class Crawler {
 
       const targets = new Set<string>();
 
-      for (const link of page.context.links) {
+      for (const link of this.observedLinks(page.context)) {
         if (!link.isInternal) continue;
 
         const to = keyOf(link.href);
@@ -480,6 +523,7 @@ export class Crawler {
           nofollow: link.isNoFollow,
           anchor: link.text.trim(),
           chrome: link.inChrome === true,
+          source: link.source,
         });
       }
 
@@ -496,7 +540,7 @@ export class Crawler {
     return {
       entryUrl: keyOf(this.entryUrl),
       pageCount,
-      coverage: { complete: this.queue.length === 0 && excludedCount === 0 && !this.results.some((page) => page.error), limitReached: this.queue.length > 0, failed: this.results.filter((page) => page.error).length, excluded: excludedCount },
+      coverage: { complete: this.queue.length === 0 && excludedCount === 0 && !this.results.some((page) => page.error || page.context.renderUnavailableReason), limitReached: this.queue.length > 0, failed: this.results.filter((page) => page.error).length, excluded: excludedCount },
       depthByUrl: this.depthByUrl,
       inboundLinksByUrl,
       outboundLinksByUrl,
@@ -507,6 +551,20 @@ export class Crawler {
     };
   }
 
+  /** Retain raw edges and add rendered observations without double-counting shared anchors. */
+  private observedLinks(context: AuditContext): import('../types.js').LinkInfo[] {
+    const links = [...context.links];
+    const raw = new Map<string, number>();
+    const key = (link: import('../types.js').LinkInfo) => JSON.stringify([link.href, link.text, link.isNoFollow, link.inChrome]);
+    for (const link of links) raw.set(key(link), (raw.get(key(link)) ?? 0) + 1);
+    for (const link of context.renderedLinks ?? []) {
+      const remaining = raw.get(key(link)) ?? 0;
+      if (remaining > 0) { raw.set(key(link), remaining - 1); continue; }
+      links.push({ ...link, source: 'rendered' });
+    }
+    return links;
+  }
+
   /**
    * Distil one crawled page into its SitePageInfo record.
    *
@@ -515,15 +573,17 @@ export class Crawler {
    * defaults with `statusCode: 0`.
    */
   private buildPageInfo(page: CrawledPage): SitePageInfo {
-    const { $, headers, statusCode } = page.context;
+    const $ = page.context.rendered$ ?? page.context.$;
+    const { statusCode } = page.context;
+    const robotsText = page.context.robotsTxtContent ?? this.robotsTxtContent;
+    const crawlAllowed = robotsText !== undefined ? new RobotsMatcher(robotsText, 'Googlebot').isAllowed(page.context.url) : undefined;
 
     const info: SitePageInfo = {
       statusCode,
       noindex: false,
       nofollow: false,
-      // Best-effort: the matcher exists only when respectRobots is on and
-      // robots.txt was reachable, so "unknown" is reported as false.
-      disallowed: this.robots ? !this.robots.isAllowed(page.url) : false,
+      // Compatibility flag; crawlAllowed preserves unknown vs allowed.
+      disallowed: crawlAllowed === false,
       hreflangOut: {},
     };
 
@@ -536,16 +596,13 @@ export class Crawler {
       }
     }
 
-    const directives: string[] = [];
-    $('meta[name="robots"]').each((_, el) => {
-      directives.push(...parseRobotsDirectiveTokens($(el).attr('content') ?? ''));
-    });
-    const xRobotsTag = headers['x-robots-tag'];
-    if (xRobotsTag) {
-      directives.push(...parseRobotsDirectiveTokens(xRobotsTag));
-    }
-    info.noindex = directives.includes('noindex') || directives.includes('none');
-    info.nofollow = directives.includes('nofollow') || directives.includes('none');
+    const indexing = readIndexingDirectives(page.context);
+    info.noindex = indexing.noindex;
+    info.nofollow = indexing.nofollow;
+    info.indexingAllowedByDirectives = page.error ? undefined : !indexing.noindex;
+    info.followAllowedByDirectives = page.error ? undefined : !indexing.nofollow;
+    info.crawlAllowed = crawlAllowed;
+    info.robotsEvidence = indexing;
 
     $('link[rel="alternate"][hreflang]').each((_, el) => {
       const code = $(el).attr('hreflang')?.trim();
@@ -564,6 +621,7 @@ export class Crawler {
     const title = $(DOCUMENT_TITLE).first().text().replace(/\s+/g, ' ').trim();
     if (title) info.title = title;
     info.wordCount = countWords(extractMainContent($));
+    info.language = $('html').attr('lang')?.trim().toLowerCase().split('-')[0] || undefined;
 
     const schemaNodes = summarizeSchemaNodes($);
     info.pageKind = pageKindFrom(
@@ -579,9 +637,9 @@ export class Crawler {
    * Discover and queue new URLs from page links
    */
   private discoverUrls(context: AuditContext): void {
-    const parentDepth = this.depthByUrl.get(this.normalizeUrl(context.url)) ?? 0;
+    const parentDepth = this.depthByUrl.get(this.normalizeUrl(context.url));
 
-    for (const link of context.links) {
+    for (const link of this.observedLinks(context)) {
       // Only follow internal links
       if (!link.isInternal) {
         continue;
@@ -603,6 +661,10 @@ export class Crawler {
       // filters below exclude from crawling: discovered is not the same as
       // followed. Isolated-URL rules key on the absence of this source.
       this.recordDiscoverySource(normalizedUrl, 'link');
+      if (!link.isNoFollow && parentDepth !== undefined) {
+        const depth = parentDepth + 1;
+        this.depthByUrl.set(normalizedUrl, Math.min(this.depthByUrl.get(normalizedUrl) ?? Infinity, depth));
+      }
 
       // Skip nofollow links
       if (link.isNoFollow) {
@@ -631,7 +693,6 @@ export class Crawler {
       // FIFO and a URL is queued at most once, so this is its shortest path
       // from the entry point.
       this.visited.add(normalizedUrl);
-      this.depthByUrl.set(normalizedUrl, parentDepth + 1);
       this.queue.push(normalizedUrl);
     }
   }

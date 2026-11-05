@@ -1,3 +1,4 @@
+import { readIndexingDirectives } from '../../analysis/robots.js';
 import type { AuditContext } from '../../types.js';
 import { defineRule, pass, warn, fail } from '../define-rule.js';
 import { fetchPage } from '../../crawler/fetcher.js';
@@ -34,26 +35,8 @@ function normalizeUrl(url: string): string {
 /**
  * Check if page has noindex directive
  */
-function hasNoindex($: AuditContext['$'], headers: Record<string, string>): boolean {
-  // Check meta robots
-  const robotsMeta = $('meta[name="robots"]').attr('content') || '';
-  if (/noindex/i.test(robotsMeta)) {
-    return true;
-  }
-
-  // Check googlebot meta
-  const googlebotMeta = $('meta[name="googlebot"]').attr('content') || '';
-  if (/noindex/i.test(googlebotMeta)) {
-    return true;
-  }
-
-  // Check X-Robots-Tag header
-  const xRobotsTag = headers['x-robots-tag'] || headers['X-Robots-Tag'] || '';
-  if (/noindex/i.test(xRobotsTag)) {
-    return true;
-  }
-
-  return false;
+function hasNoindex($: AuditContext['$'], headers: Record<string, string>, rendered$?: AuditContext['$']): boolean {
+  return readIndexingDirectives({ $, headers, rendered$ }).noindex;
 }
 
 /**
@@ -119,7 +102,7 @@ export const noindexInSitemapRule = defineRule({
     const { $, url, headers } = context;
 
     // First check if current page is noindexed
-    const isNoindexed = hasNoindex($, headers);
+    const isNoindexed = hasNoindex($, headers, context.rendered$);
 
     // If page is not noindexed, this rule passes (no conflict possible)
     if (!isNoindexed) {

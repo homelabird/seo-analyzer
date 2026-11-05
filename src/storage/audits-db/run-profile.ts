@@ -25,6 +25,7 @@ export interface ProfileDifference {
 
 /** Rendered as "Core Web Vitals" rather than "measureCwv" */
 const LABELS: Record<string, string> = {
+  crawlSitemap: 'sitemap crawl',
   measureCwv: 'Core Web Vitals',
   crawl: 'crawl mode',
   mobile: 'mobile parity',
@@ -44,6 +45,7 @@ const LABELS: Record<string, string> = {
  * not use it, instead of differing by "undefined".
  */
 const ABSENT_MEANS: Partial<Record<keyof AuditRunOptions, unknown>> = {
+  crawlSitemap: false,
   staging: false,
   allowPrivate: false,
 };
@@ -55,6 +57,7 @@ const ABSENT_MEANS: Partial<Record<keyof AuditRunOptions, unknown>> = {
  * called material.
  */
 const MATERIAL = new Set([
+  'crawlSitemap',
   'measureCwv',
   'mobile',
   'simulateInteraction',

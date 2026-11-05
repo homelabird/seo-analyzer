@@ -1,10 +1,11 @@
 import type { AuditContext } from '../../types.js';
-import { defineRule, pass, warn } from '../define-rule.js';
+import { defineRule, pass, warn, notMeasured } from '../define-rule.js';
 import {
   extractMainContent,
   stripUrls,
   tokenize,
   getWordFrequency,
+  supportsEnglishAnalysis,
 } from './utils/text-extractor.js';
 import { getKeywordWords } from './utils/stopwords.js';
 
@@ -64,19 +65,25 @@ export const keywordStuffingRule = defineRule({
   category: 'content',
   weight: 5,
   run: async (context: AuditContext) => {
-    const { $ } = context;
+    const $ = context.rendered$ ?? context.$;
 
     // Extract main content, discarding URLs so domains don't tokenize into
     // fragments like "com" and register as keywords.
     const mainContent = stripUrls(extractMainContent($));
     const allWords = tokenize(mainContent);
+    if (!supportsEnglishAnalysis($, mainContent)) {
+      return notMeasured('content-keyword-stuffing', 'Keyword thresholds and stopwords are calibrated for English only', {
+        totalWords: allWords.length, reason: 'unsupported-language',
+        mostRepeated: [...getWordFrequency(allWords)].sort((a, b) => b[1] - a[1]).slice(0, 10),
+      });
+    }
 
     // Density is measured against content words, so the sample-size guard has
     // to be measured against content words too.
     const contentWords = getKeywordWords(allWords, MIN_WORD_LENGTH);
 
     if (contentWords.length < MIN_CONTENT_WORDS) {
-      return pass(
+      return notMeasured(
         'content-keyword-stuffing',
         `Content too short for keyword analysis (${contentWords.length} content words)`,
         {

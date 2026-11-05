@@ -1,6 +1,6 @@
 import type { AuditContext } from '../../types.js';
 import { defineRule, pass, fail, notMeasured } from '../define-rule.js';
-import { isSameUrl, lookupPage, resolveCanonical } from './site-page-utils.js';
+import { hasUnknownRobots, isSameUrl, lookupPage, resolveCanonical } from './site-page-utils.js';
 
 /**
  * Rule: Canonical Points To Disallowed URL
@@ -49,7 +49,7 @@ export const canonicalToDisallowedRule = defineRule({
     }
 
     const target = lookupPage(site, canonical);
-    if (!target) {
+    if (!target || hasUnknownRobots(target)) {
       return notMeasured(
         'crawl-canonical-to-disallowed',
         'Canonical target was not crawled, so its robots.txt state is unknown',

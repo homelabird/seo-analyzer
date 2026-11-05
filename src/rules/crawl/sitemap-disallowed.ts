@@ -1,5 +1,6 @@
 import type { AuditContext } from '../../types.js';
 import { defineRule, pass, fail, notMeasured } from '../define-rule.js';
+import { hasUnknownRobots } from './site-page-utils.js';
 
 // Reference hint: xml-sitemaps/disallowed-url-in-xml-sitemaps
 
@@ -51,7 +52,7 @@ export const sitemapDisallowedRule = defineRule({
 
     for (const url of sitemapUrls) {
       const info = pages.get(site.normalize(url));
-      if (!info) {
+      if (!info || hasUnknownRobots(info)) {
         notCrawled++;
         continue;
       }
@@ -86,7 +87,7 @@ export const sitemapDisallowedRule = defineRule({
     // `disallowed` is false whenever the robots answer is unknown, so "nothing
     // disallowed" only means something if robots.txt was actually evaluated.
     const anyDisallowed = [...pages.values()].some((p) => p.disallowed);
-    if (!anyDisallowed && !context.robotsTxtContent) {
+    if (notCrawled > 0 || (!anyDisallowed && context.robotsTxtContent === undefined)) {
       return notMeasured(
         'crawl-sitemap-disallowed',
         'robots.txt was not fetched, so disallow status of sitemap URLs is unknown',

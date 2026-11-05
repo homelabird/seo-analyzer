@@ -45,6 +45,7 @@ function crawlerWith(pages: CrawledPage[], robots: RobotsMatcher | null = null):
   // Same-domain checks need the crawl hostname, normally set by crawl().
   priv.hostname = pages[0] ? new URL(pages[0].url).hostname : '';
   priv.robots = robots;
+  if (robots) priv.robotsTxtContent = 'User-agent: *\nDisallow: /blocked';
   return crawler;
 }
 

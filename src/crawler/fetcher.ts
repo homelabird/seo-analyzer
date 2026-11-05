@@ -306,7 +306,7 @@ interface LinkExtractionResult {
  * @param baseUrl - Base URL for resolving relative links
  * @returns Object with valid links and invalid links
  */
-function extractLinks($: CheerioAPI, baseUrl: string, documentUrl = baseUrl): LinkExtractionResult {
+export function extractLinks($: CheerioAPI, baseUrl: string, documentUrl = baseUrl): LinkExtractionResult {
   const links: LinkInfo[] = [];
   const invalidLinks: InvalidLinkInfo[] = [];
   const baseUrlObj = new URL(documentUrl);
